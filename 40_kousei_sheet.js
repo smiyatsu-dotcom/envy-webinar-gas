@@ -1,0 +1,214 @@
+/**
+ * 40_kousei_sheet.gs（アイコン/背景対応版）
+ * 構成シートの雛形生成・AI出力の取り込み・読み戻し
+ *
+ * タブ構成:
+ *  設定           : B1=案件名, B2=承認, B3=ステータス, B4=ヒアリングID, B5=素材フォルダID, B6=プロンプトDocURL
+ *  AI出力貼り付け  : B2=取り込みチェック, A4〜=台本JSON, B4〜=構成テキストJSON, C4〜=デザインJSON(任意)
+ *  コンテンツ4タブ : A=No. B=基本構成 C=小分類 D=構成テキスト E=台本 F=アイコン G=背景
+ */
+
+const PASTE_TAB = 'AI出力貼り付け';
+const PASTE_ROWS = 200;
+
+function createKouseiScaffold_(projectName, hearingId, promptDocUrl) {
+  const cfg = getConfig_();
+  const ss = SpreadsheetApp.create('【構成シート】' + projectName);
+  DriveApp.getFileById(ss.getId()).moveTo(caseFolder_(cfg, projectName));
+
+  // ---- 設定タブ ----
+  const st = ss.getSheets()[0];
+  st.setName(TABS.SETTINGS);
+  st.getRange('A1:A6').setValues([['案件名'], ['承認（済にするとスライド生成）'], ['ステータス'], ['ヒアリングファイルID'], ['素材フォルダID（空なら既定）'], ['プロンプトDoc']]);
+  st.getRange('B1').setValue(projectName);
+  st.getRange('B2').insertCheckboxes();
+  st.getRange('B3').setValue('AI出力待ち');
+  st.getRange('B4').setValue(hearingId);
+  st.getRange('B6').setValue(promptDocUrl || '');
+  st.setColumnWidth(1, 240).setColumnWidth(2, 480);
+
+  // ---- AI出力貼り付けタブ ----
+  const pt = ss.insertSheet(PASTE_TAB);
+  pt.getRange('A1').setValue(
+    '使い方: ①設定タブB6のプロンプトDocを開き全文コピー → Claude（チャット/Claude Code）に貼って実行 ' +
+    '②返ってきた「①台本JSON」をA4以下、「②構成テキストJSON」をB4以下、「③デザインJSON（アイコン/背景。出力があれば）」をC4以下に貼り付け' +
+    '（長い場合は下のセルに分割貼り付け可・上から連結されます） ' +
+    '③B2の取り込みチェックをON → 最大5分で各タブに反映され、ステータスが「レビュー待ち」になります');
+  pt.getRange('A1:E1').merge().setWrap(true).setBackground('#FFF3CD');
+  pt.setRowHeight(1, 90);
+  pt.getRange('A2').setValue('取り込み実行 →');
+  pt.getRange('B2').insertCheckboxes();
+  pt.getRange('D2').setValue('結果:');
+  pt.getRange('A3').setValue('① 台本JSON').setFontWeight('bold').setBackground('#efefef');
+  pt.getRange('B3').setValue('② 構成テキストJSON').setFontWeight('bold').setBackground('#efefef');
+  pt.getRange('C3').setValue('③ デザインJSON（任意）').setFontWeight('bold').setBackground('#efefef');
+  pt.setColumnWidth(1, 380).setColumnWidth(2, 380).setColumnWidth(3, 300).setColumnWidth(4, 60).setColumnWidth(5, 380);
+  pt.setFrozenRows(3);
+
+  writeContentTabs_(ss, {}, {}, {});
+  return ss;
+}
+
+/** 4タブへ全106行を書き込む */
+function writeContentTabs_(ss, kouseiMap, daihonMap, designMap, taikeiMap) {
+  designMap = designMap || {};
+  taikeiMap = taikeiMap || {};
+  const defs = rowDefs_();
+  const byTab = {};
+  defs.forEach(function (r) { (byTab[r.tab] = byTab[r.tab] || []).push(r); });
+  [TABS.INTRO, TABS.PROBLEM, TABS.STORY, TABS.OFFER].forEach(function (tabName) {
+    let sh = ss.getSheetByName(tabName);
+    if (!sh) sh = ss.insertSheet(tabName);
+    const rows = byTab[tabName];
+    const values = [['No.', '基本構成', '小分類', '構成テキスト', '台本', 'アイコン', '背景']];
+    rows.forEach(function (r) {
+      const dz = designMap[r.no] || {};
+      let k = resolveKousei_(r, kouseiMap);
+      let dh = resolveDaihon_(r, daihonMap);
+      const imported = Object.keys(kouseiMap).length > 0;
+      if (SKIP_ROWS[r.no] && imported && String(k).trim() === '' && String(dh).trim() === '') {
+        k = '（斜線）'; dh = '（斜線: このスライドはテンプレのままスキップ設定で出力されます）';
+      }
+      // No.96/102 は「（単一）/（松竹梅）」の2行構造（実物の構成シートと同形式）
+      if (r.no === 96 || r.no === 102) {
+        const base = r.no === 96 ? '定価' : '値引き後の金額';
+        const tk = taikeiMap[r.no] || '';
+        const single = tk !== '松竹梅';
+        values.push([r.no, base + '（単一）', r.sub, single ? k : (imported ? '（斜線）' : ''), single ? dh : (imported ? '（斜線）' : ''), '', dz.bg || '']);
+        values.push(['', base + '（松竹梅）', r.sub, !single ? k : (imported ? '（斜線）' : ''), !single ? dh : (imported ? '（斜線）' : ''), '', '']);
+        return;
+      }
+      values.push([r.no, r.label, r.sub, k, dh, r.icon ? (dz.icon || '') : '', dz.bg || '']);
+    });
+    sh.getRange(1, 1, values.length, 7).setValues(values);
+    sh.getRange(1, 1, 1, 7).setFontWeight('bold').setBackground('#efefef');
+    sh.setColumnWidth(1, 50).setColumnWidth(2, 160).setColumnWidth(3, 160).setColumnWidth(4, 300).setColumnWidth(5, 460).setColumnWidth(6, 140).setColumnWidth(7, 140);
+    sh.getRange(2, 4, values.length - 1, 2).setWrap(true).setVerticalAlignment('top');
+    sh.setFrozenRows(1);
+  });
+}
+
+function resolveKousei_(def, kouseiMap) {
+  switch (def.km) {
+    case 'FIX': return def.kFix;
+    case 'EMPTY': return '';
+    case 'REF': return 'No.' + def.kRef + 'と同じ';
+    default: return kouseiMap[def.no] !== undefined ? kouseiMap[def.no] : '';
+  }
+}
+function resolveDaihon_(def, daihonMap) {
+  if (def.dm === 'FIX') return FIXED_DAIHON[def.no] || '';
+  return daihonMap[def.no] !== undefined ? daihonMap[def.no] : '';
+}
+
+// ============================================================
+// AI出力の取り込み
+// ============================================================
+function isImportRequested_(ss) {
+  const pt = ss.getSheetByName(PASTE_TAB);
+  return pt ? pt.getRange('B2').getValue() === true : false;
+}
+function readPasteColumn_(pt, col) {
+  return pt.getRange(4, col, PASTE_ROWS, 1).getValues()
+    .map(function (r) { return String(r[0]); })
+    .filter(function (v) { return v.trim() !== ''; })
+    .join('\n');
+}
+
+function importAiOutput_(ss) {
+  const pt = ss.getSheetByName(PASTE_TAB);
+  if (!pt) throw new Error(PASTE_TAB + ' タブがありません');
+  const daihonText = readPasteColumn_(pt, 1);
+  const kouseiText = readPasteColumn_(pt, 2);
+  const designText = readPasteColumn_(pt, 3); // 任意
+  if (!daihonText) throw new Error('台本JSONが貼り付けられていません（A4以下）');
+  if (!kouseiText) throw new Error('構成テキストJSONが貼り付けられていません（B4以下）');
+
+  const warnings = [];
+  const gen = daihonGenRows_();
+  const daihonMap = validateRows_(parseJsonArray_(daihonText), gen.partA.concat(gen.partB), 'daihon', warnings);
+  const kouseiRows = parseJsonArray_(kouseiText);
+  const kouseiMap = validateRows_(kouseiRows, kouseiGenRows_(), 'kousei_text', warnings);
+  const taikeiMap = {};
+  kouseiRows.forEach(function (r) {
+    const no = Number(r.no);
+    if ((no === 96 || no === 102) && r.taikei) taikeiMap[no] = String(r.taikei);
+  });
+  if (!taikeiMap[96]) { taikeiMap[96] = '単一'; warnings.push('No.96 taikei未指定→単一とみなしました'); }
+  if (!taikeiMap[102]) taikeiMap[102] = taikeiMap[96];
+  if (taikeiMap[96] !== taikeiMap[102]) warnings.push('No.96とNo.102のtaikeiが不一致です（96に合わせて生成されます）');
+  checkKouseiLimits_(kouseiMap, warnings); // 文字数規定の照合（警告のみ）
+
+  const designMap = {};
+  if (designText) {
+    try {
+      parseJsonArray_(designText).forEach(function (r) {
+        const no = Number(r.no);
+        if (!isNaN(no)) designMap[no] = { icon: String(r.icon || ''), bg: String(r.bg || '') };
+      });
+    } catch (e) { warnings.push('デザインJSONの解析に失敗（アイコン/背景は未設定で続行）: ' + e); }
+  }
+
+  writeContentTabs_(ss, kouseiMap, daihonMap, designMap, taikeiMap);
+  return warnings;
+}
+
+function setImportResult_(ss, message) {
+  const pt = ss.getSheetByName(PASTE_TAB);
+  if (!pt) return;
+  pt.getRange('B2').setValue(false);
+  pt.getRange('E2').setValue(message).setWrap(true);
+}
+
+// ============================================================
+// 読み戻し・承認・ステータス
+// ============================================================
+function readKouseiSheet_(kouseiSheetId) {
+  const ss = SpreadsheetApp.openById(kouseiSheetId);
+  const st = ss.getSheetByName(TABS.SETTINGS);
+  const out = {
+    name: String(st.getRange('B1').getValue()),
+    assetsFolderId: String(st.getRange('B5').getValue()).trim(),
+    ryoukin: '単一',
+    rows: {}
+  };
+  [TABS.INTRO, TABS.PROBLEM, TABS.STORY, TABS.OFFER].forEach(function (tabName) {
+    const sh = ss.getSheetByName(tabName);
+    if (!sh) throw new Error('構成シートにタブがありません: ' + tabName);
+    const values = sh.getDataRange().getValues();
+    let lastNo = 0;
+    for (let i = 1; i < values.length; i++) {
+      const noCell = Number(values[i][0]);
+      const label = String(values[i][1] || '');
+      const no = noCell || ((lastNo === 96 || lastNo === 102) && label ? lastNo : 0);
+      if (!no) continue;
+      lastNo = noCell || lastNo;
+      const rec = {
+        kousei: String(values[i][3]), daihon: String(values[i][4]),
+        icon: String(values[i][5] || ''), bg: String(values[i][6] || '')
+      };
+      const isSlash = rec.kousei.trim() === '' || rec.kousei.indexOf('斜線') !== -1;
+      if ((no === 96 || no === 102) && out.rows[no]) {
+        // 2行目（松竹梅側）: 記入がある側を採用
+        if (!isSlash) { out.rows[no] = rec; if (label.indexOf('松竹梅') !== -1) out.ryoukin = '松竹梅'; }
+        continue;
+      }
+      if ((no === 96 || no === 102) && !isSlash && label.indexOf('松竹梅') !== -1) out.ryoukin = '松竹梅';
+      out.rows[no] = rec;
+    }
+  });
+  rowDefs_().forEach(function (def) {
+    const row = out.rows[def.no];
+    if (!row) return;
+    const m = row.kousei.match(/^No\.?(\d+)と同じ$/);
+    row.kouseiResolved = (m && out.rows[Number(m[1])]) ? out.rows[Number(m[1])].kousei : row.kousei;
+  });
+  return out;
+}
+
+function isApproved_(kouseiSheetId) {
+  return SpreadsheetApp.openById(kouseiSheetId).getSheetByName(TABS.SETTINGS).getRange('B2').getValue() === true;
+}
+function setKouseiStatus_(kouseiSheetId, status) {
+  SpreadsheetApp.openById(kouseiSheetId).getSheetByName(TABS.SETTINGS).getRange('B3').setValue(status);
+}
