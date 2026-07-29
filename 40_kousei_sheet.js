@@ -30,10 +30,11 @@ function createKouseiScaffold_(projectName, hearingId, promptDocUrl) {
   // ---- AI出力貼り付けタブ ----
   const pt = ss.insertSheet(PASTE_TAB);
   pt.getRange('A1').setValue(
-    '使い方: ①設定タブB6のプロンプトDocを開き全文コピー → Claude（チャット/Claude Code）に貼って実行 ' +
-    '②返ってきた「①台本JSON」をA4以下、「②構成テキストJSON」をB4以下、「③デザインJSON（アイコン/背景。出力があれば）」をC4以下に貼り付け' +
-    '（長い場合は下のセルに分割貼り付け可・上から連結されます） ' +
-    '③B2の取り込みチェックをON → 最大5分で各タブに反映され、ステータスが「レビュー待ち」になります');
+    '使い方: 設定タブB6のプロンプトDocを開き全文コピー → Claude Codeに貼って実行すると、' +
+    '案件フォルダに【台本JSON】【構成テキストJSON】【デザインJSON】のtxtが保存され、' +
+    '最大5分で各タブへ自動反映されます（このタブへの貼り付けは不要）。 ' +
+    '手で貼りたいときだけ: 台本JSONをA4以下、構成テキストJSONをB4以下、デザインJSONをC4以下に貼り' +
+    '（長い場合は下のセルに分割可・上から連結されます）、B2の取り込みチェックをONにしてください');
   pt.getRange('A1:E1').merge().setWrap(true).setBackground('#FFF3CD');
   pt.setRowHeight(1, 90);
   pt.getRange('A2').setValue('取り込み実行 →');
@@ -115,14 +116,18 @@ function readPasteColumn_(pt, col) {
     .join('\n');
 }
 
-function importAiOutput_(ss) {
+/**
+ * 貼り付けタブ（手貼り）または案件フォルダのtxt（Claude Codeの書き出し）を取り込む。
+ * texts を渡した場合はそちらを使い、貼り付けタブは読まない。
+ */
+function importAiOutput_(ss, texts) {
   const pt = ss.getSheetByName(PASTE_TAB);
   if (!pt) throw new Error(PASTE_TAB + ' タブがありません');
-  const daihonText = readPasteColumn_(pt, 1);
-  const kouseiText = readPasteColumn_(pt, 2);
-  const designText = readPasteColumn_(pt, 3); // 任意
-  if (!daihonText) throw new Error('台本JSONが貼り付けられていません（A4以下）');
-  if (!kouseiText) throw new Error('構成テキストJSONが貼り付けられていません（B4以下）');
+  const daihonText = texts ? texts.daihon : readPasteColumn_(pt, 1);
+  const kouseiText = texts ? texts.kousei : readPasteColumn_(pt, 2);
+  const designText = texts ? texts.design : readPasteColumn_(pt, 3); // 任意
+  if (!daihonText) throw new Error('台本JSONがありません（【台本JSON】のtxt、またはA4以下）');
+  if (!kouseiText) throw new Error('構成テキストJSONがありません（【構成テキストJSON】のtxt、またはB4以下）');
 
   const warnings = [];
   const gen = daihonGenRows_();
@@ -153,6 +158,42 @@ function importAiOutput_(ss) {
   return warnings;
 }
 
+/**
+ * 案件フォルダに置かれたJSONのtxt（Claude Codeが書き出したもの）を読む。
+ * 台本と構成テキストの2つがそろっているときだけ取り込み対象とする。
+ * stamp はファイルの最終更新時刻。前回と同じなら取り込み済みとみなす。
+ */
+function readCaseJsonTexts_(cfg, projectName) {
+  const want = { daihon: '【台本JSON】', kousei: '【構成テキストJSON】', design: '【デザインJSON】' };
+  let folder;
+  try { folder = caseFolder_(cfg, projectName); } catch (e) { return null; }
+  const found = {};
+  let stamp = 0;
+  const files = folder.getFiles();
+  while (files.hasNext()) {
+    const f = files.next();
+    const nm = f.getName();
+    if (!/\.txt$/i.test(nm)) continue;
+    Object.keys(want).forEach(function (k) {
+      if (found[k] || nm.indexOf(want[k]) !== 0) return;
+      let text = '';
+      try { text = f.getBlob().getDataAsString('UTF-8'); } catch (e) { return; }
+      if (!String(text).trim()) return;
+      found[k] = text;
+      const t = f.getLastUpdated().getTime();
+      if (t > stamp) stamp = t;
+    });
+  }
+  if (!found.daihon || !found.kousei) return null;
+  return { daihon: found.daihon, kousei: found.kousei, design: found.design || '', stamp: String(stamp) };
+}
+/** txtから取り込んだときの目印（同じ内容で何度も取り込まないため） */
+function getAutoStamp_(ssId) {
+  return PropertiesService.getScriptProperties().getProperty('AUTOIMPORT_' + ssId) || '';
+}
+function setAutoStamp_(ssId, stamp) {
+  PropertiesService.getScriptProperties().setProperty('AUTOIMPORT_' + ssId, String(stamp));
+}
 function setImportResult_(ss, message) {
   const pt = ss.getSheetByName(PASTE_TAB);
   if (!pt) return;

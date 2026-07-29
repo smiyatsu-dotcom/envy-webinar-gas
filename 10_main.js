@@ -83,7 +83,23 @@ function processImports_() {
     if ((status !== 'AI出力待ち' && status !== 'レビュー待ち') || !kouseiUrl) continue; // レビュー待ちでも再取り込み可
     let ss;
     try { ss = SpreadsheetApp.openById(idFromUrl_(String(kouseiUrl))); } catch (e) { continue; }
-    if (!isImportRequested_(ss)) continue;
+    // 手貼りのチェックが入っていないときは、案件フォルダのtxtを見て自動で取り込む
+    if (!isImportRequested_(ss)) {
+      const auto = readCaseJsonTexts_(cfg, String(name));
+      if (!auto || auto.stamp === getAutoStamp_(ss.getId())) continue;
+      setAutoStamp_(ss.getId(), auto.stamp);  // 失敗しても同じ内容で繰り返さない（txtを直せば再実行される）
+      try {
+        const w = importAiOutput_(ss, auto);
+        setImportResult_(ss, 'txtから自動取り込み' + (w.length ? '（警告: ' + w.join(' / ') + '）' : '') +
+          ' → 各タブをレビューし、設定タブの承認チェックをONにしてください');
+        setKouseiStatus_(ss.getId(), 'レビュー待ち');
+        upsertRow_(cfg, hearingId, name, 'レビュー待ち', kouseiUrl, '', w.join(' / '));
+      } catch (e) {
+        setImportResult_(ss, 'txtの自動取り込みに失敗: ' + String(e));
+        upsertRow_(cfg, hearingId, name, 'AI出力待ち', kouseiUrl, '', 'txt自動取り込み失敗: ' + String(e));
+      }
+      continue;
+    }
 
     try {
       const warnings = importAiOutput_(ss);
