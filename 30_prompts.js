@@ -224,12 +224,22 @@ function scanAssetNames_(cfg, key) {
 /**
  * 手動実行用プロンプト全文を組み立てる（プロンプトDocの中身）
  */
-function buildManualPrompt_(hearing, assetLists) {
+function buildManualPrompt_(hearing, assetLists, projectName) {
   const gen = daihonGenRows_();
   const allDaihonNos = gen.partA.concat(gen.partB);
   const kouseiNos = kouseiGenRows_();
   const design = designRules_(assetLists || { iconP: [], iconW: [], bg: [], select: [] });
+  const company = projectName ? caseCompany_(projectName) : '｛会社名｝';
   const blocks = [
+    '# 【プロンプト】' + company + ' — Claude Codeへの作業指示',
+    '',
+    'あなた(Claude Code)は、作業フォルダとして共有ドライブ「社内｜Claude Code資料生成」が選択された状態で、この指示を受け取っています。次の手順で作業してください。',
+    '',
+    '1. 「【固定】ウェビナー自動生成/資料改善メモ.md」を読み込み、そこに書かれた各ルールを、下記の生成ルールと同格の追加ルールとして必ず適用する（ファイルが無い場合はそのまま進める）',
+    '2. 下記のルールに従って段階1→2' + (design ? '→3' : '') + 'の順に生成し、末尾の「出力形式」のとおりtxtファイルへ保存する',
+    '3. 利用者が添削・修正・要望を伝えたら、必ず次の2つを行う: ①該当のtxtを修正して上書き保存する ②その添削を「今後のすべての案件に適用できる一般化ルール」(案件固有の固有名詞を含まない形)に変換し、「【固定】ウェビナー自動生成/資料改善メモ.md」の末尾に【ルールN】(日付)/対象/ルール/由来 の形式で追記保存する。案件固有の修正は追記しない。一般化できるか迷う場合は「これは一般ルール化しますか?」と利用者に確認する',
+    '4. ファイルの保存・上書き・削除は、必ず作業フォルダ(ローカル同期された「社内｜Claude Code資料生成」)のファイル操作で行うこと。Google Driveコネクタ(API)でのファイル作成は禁止(削除・上書きができず重複の原因になるため)。作業フォルダが選択されていない場合は、作業を始める前に利用者へ「作業フォルダに社内｜Claude Code資料生成を選択してください」と伝えて中断すること',
+    '',
     rolePrompt_(),
     '',
     '━━━━━━━━━━━━━━━━━━━━━━━━━━',
@@ -267,21 +277,24 @@ function buildManualPrompt_(hearing, assetLists) {
   blocks.push(
     '',
     '# 出力形式（厳守）',
-    '出力は次の' + (design ? '3' : '2') + 'つのJSONコードブロックのみ。前置き・解説は不要。',
+    'JSONはチャットに貼らず、次の' + (design ? '3' : '2') + 'つのtxtファイルへ保存する。',
+    '保存先は「【固定】ウェビナー自動生成/【出力】生成物/' + company + '/」（フォルダが無ければ作成）。毎回同じファイル名へ上書きする。',
     '',
-    '【出力1: 台本JSON】',
+    '【出力1: 台本JSON】→ 「【台本JSON】' + company + '.txt」',
     '```json',
     '[{"no": 1, "daihon": "..."}, {"no": 3, "daihon": "..."}, ...]',
     '```',
     '',
-    '【出力2: 構成テキストJSON】',
+    '【出力2: 構成テキストJSON】→ 「【構成テキストJSON】' + company + '.txt」',
     '```json',
     '[{"no": 3, "kousei_text": "..."}, ...]',
     '```',
-    design ? '（デザインJSONは段階3の指示どおり【出力3】として出力）' : '',
+    design ? '【出力3: デザインJSON】→ 「【デザインJSON】' + company + '.txt」（段階3の指示どおりの形式）' : '',
     '',
-    '- 応答が長くなり分割出力する場合は、同じ配列の続きから出力すること（新しい「[」を開いてよい。取り込み側で連結される）。',
-    '- 全行が揃うまで出力すること。省略・要約での置き換え（「以下同様」等）は禁止。');
+    '- txtの中身はJSONだけにする（前置き・解説・```json などの記号は入れない）。',
+    '- 1回で書き切れない場合は、同じファイルの続きへ書き足して1本にまとめる。',
+    '- 全行が揃うまで書き切ること。省略・要約での置き換え（「以下同様」等）は禁止。',
+    '- 保存後、ファイルごとに「保存先パス・入っている行番号・抜けの有無」を報告する。');
   return blocks.join('\n');
 }
 
@@ -313,7 +326,7 @@ function createPromptDoc_(projectName, hearingId) {
   };
   const folder = caseFolder_(cfg, projectName);
   const doc = DocumentApp.create('【プロンプト】' + projectName);
-  doc.getBody().setText(buildManualPrompt_(hearing, assetLists));
+  doc.getBody().setText(buildManualPrompt_(hearing, assetLists, projectName));
   doc.saveAndClose();
   DriveApp.getFileById(doc.getId()).moveTo(folder);
   // LP生成用プロンプト（Claude Codeに貼る自己完結型）も同じ案件フォルダへ
