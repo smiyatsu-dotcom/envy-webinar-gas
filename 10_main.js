@@ -65,6 +65,8 @@ function processNewHearings_() {
       const ss = createKouseiScaffold_(f.getName(), f.getId(), doc.getUrl()); // 40_kousei_sheet.gs
       // 4章で使うURLの入れ物。補助なので、失敗しても本体は止めない
       try { createUrlSheet_(cfg, f.getName()); } catch (e) { Logger.log('URL管理シートの作成に失敗: ' + e); }  // 60_url_sheet.gs
+      // お客様に共有する納品物の置き場所。同じく補助なので止めない
+      try { deliveryFolder_(cfg, f.getName()); } catch (e) { Logger.log('納品フォルダの作成に失敗: ' + e); }  // 70_delivery_folder.gs
       upsertRow_(cfg, f.getId(), f.getName(), 'AI出力待ち', ss.getUrl(), '',
         'プロンプトDoc: ' + doc.getUrl() + ' → Claudeで実行し、構成シート「' + PASTE_TAB + '」タブへ貼り付けてください');
     } catch (e) {
