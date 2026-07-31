@@ -63,6 +63,8 @@ function processNewHearings_() {
     try {
       const doc = createPromptDoc_(f.getName(), f.getId());       // 30_prompts.gs
       const ss = createKouseiScaffold_(f.getName(), f.getId(), doc.getUrl()); // 40_kousei_sheet.gs
+      // 4章で使うURLの入れ物。補助なので、失敗しても本体は止めない
+      try { createUrlSheet_(cfg, f.getName()); } catch (e) { Logger.log('URL管理シートの作成に失敗: ' + e); }  // 60_url_sheet.gs
       upsertRow_(cfg, f.getId(), f.getName(), 'AI出力待ち', ss.getUrl(), '',
         'プロンプトDoc: ' + doc.getUrl() + ' → Claudeで実行し、構成シート「' + PASTE_TAB + '」タブへ貼り付けてください');
     } catch (e) {
