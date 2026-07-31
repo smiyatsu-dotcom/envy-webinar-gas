@@ -42,6 +42,34 @@ const URL_SHEET_ROWS = [
 ];
 
 /**
+ * 【出力】生成物にある案件フォルダのうち、【URL管理】がまだ無いものに作る。
+ *
+ * この仕組みを入れる前に始まった案件は【URL管理】を持っていないため、
+ * 一度だけ実行して追いつかせる。すでにあるものは触らない。
+ */
+function backfillUrlSheets() {
+  const cfg = getConfig_();
+  const it = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID).getFolders();
+  let made = 0, had = 0;
+  while (it.hasNext()) {
+    const folder = it.next();
+    if (folder.getFilesByName(URL_SHEET_PREFIX + folder.getName()).hasNext()) {
+      Logger.log('・' + folder.getName() + '：すでにあります');
+      had++;
+      continue;
+    }
+    try {
+      createUrlSheet_(cfg, folder.getName());
+      Logger.log('・' + folder.getName() + '：作成しました');
+      made++;
+    } catch (e) {
+      Logger.log('⚠ ' + folder.getName() + '：作成に失敗 ' + e);
+    }
+  }
+  Logger.log('新しく作成 ' + made + '件 / すでにあった ' + had + '件');
+}
+
+/**
  * 【テスト用】URL管理シートを1枚だけ試しに作る。本番の案件には触らない。
  *
  * 実行すると「【出力】生成物」の中に「__テスト」フォルダができ、
