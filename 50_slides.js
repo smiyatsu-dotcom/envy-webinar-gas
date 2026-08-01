@@ -755,16 +755,26 @@ function findZukai_(folder, def, row) {
   if (m) keyword = m[1];
   const partialOnly = def.img === '*プロフ';
   const key = normalizeKey_(partialOnly ? 'プロフ' : keyword);
-  let exact = null, partial = null;
+  // 同じ名前でGIFとPNGの両方がある場合はGIFを使う（図解1〜6はPNGのあとにGIFも出力されるため）
+  let exact = null, exactGif = null, partial = null, partialGif = null;
   const files = folder.getFiles();
   while (files.hasNext()) {
     const f = files.next();
-    if (f.getMimeType().indexOf('image/') !== 0) continue;
+    const mime = f.getMimeType();
+    if (mime.indexOf('image/') !== 0) continue;
+    const isGif = mime === 'image/gif';
     const nk = normalizeKey_(f.getName());
-    if (!partialOnly && nk === key) { exact = f; break; }
-    if (nk.indexOf(key) !== -1 && !partial) partial = f;
+    if (!partialOnly && nk === key) {
+      if (isGif) { exactGif = f; break; }
+      if (!exact) exact = f;
+      continue;
+    }
+    if (nk.indexOf(key) !== -1) {
+      if (isGif) { if (!partialGif) partialGif = f; }
+      else if (!partial) partial = f;
+    }
   }
-  return exact || partial;
+  return exactGif || exact || partialGif || partial;
 }
 
 // ============================================================
