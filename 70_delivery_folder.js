@@ -15,15 +15,22 @@
 
 const DELIVERY_ROOT_NAME = '【納品】';
 
+// 【納品】フォルダのID。共有ドライブの中で【出力】生成物と並んでいる。
+//
+// 名前や場所から探さずIDで直接開く。以前は【出力】生成物の親をたどっていたが、
+// 共有ドライブでは親をたどれないアカウントがあり、そのときマイドライブに
+// 別の【納品】を作ってしまう危険があった。
+const DELIVERY_ROOT_ID = '1l3qvbW2u-4RLBvNov4ZUj-opEGapdZnJ';
+
 /**
- * 【納品】ルートフォルダを返す。無ければ【出力】生成物と同じ階層に作る。
+ * 【納品】ルートフォルダを返す。
  */
 function deliveryRoot_(cfg) {
-  const out = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
-  const parents = out.getParents();
-  const root = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
-  const it = root.getFoldersByName(DELIVERY_ROOT_NAME);
-  return it.hasNext() ? it.next() : root.createFolder(DELIVERY_ROOT_NAME);
+  try {
+    return DriveApp.getFolderById(DELIVERY_ROOT_ID);
+  } catch (e) {
+    throw new Error('【納品】フォルダを開けません。ID（DELIVERY_ROOT_ID）と共有設定を確認してください: ' + e);
+  }
 }
 
 /**
