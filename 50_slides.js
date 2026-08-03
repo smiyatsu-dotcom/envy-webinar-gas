@@ -115,8 +115,13 @@ function exportDaihonTxt_(cfg, data, warnings) {
       if (t) parts.push(t);
     });
     const txt = parts.join('\n\n') + '\n';
-    const file = DriveApp.createFile('【台本】' + data.name + '.txt', txt, MimeType.PLAIN_TEXT);
-    file.moveTo(caseFolder_(cfg, data.name));
+    // 再生成時、同名の旧台本txtはゴミ箱へ移す（古いほうを掴む事故を防ぐ）
+    const daihonFolder = caseFolder_(cfg, data.name);
+    const daihonName = '【台本】' + data.name + '.txt';
+    const trashedDaihon = trashSameName_(daihonFolder, daihonName);
+    if (trashedDaihon) warnings.push('旧台本txt' + trashedDaihon + '件をゴミ箱へ移しました（30日以内なら復元可）');
+    const file = DriveApp.createFile(daihonName, txt, MimeType.PLAIN_TEXT);
+    file.moveTo(daihonFolder);
     warnings.push('台本txt(音声化用): ' + file.getUrl());
   } catch (e) { warnings.push('台本txt書き出し失敗: ' + e); }
 }
