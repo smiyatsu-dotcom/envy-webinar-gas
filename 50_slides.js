@@ -16,9 +16,12 @@ function generateSlides_(kouseiSheetId) {
   const data = readKouseiSheet_(kouseiSheetId); // rows + ryoukin（単一/松竹梅)
   const warnings = [];
 
-  // 1. サンプルデッキ（108枚）を複製
-  const copyFile = DriveApp.getFileById(cfg.TEMPLATE_SLIDE_ID)
-    .makeCopy('【スライド】' + data.name, caseFolder_(cfg, data.name));
+  // 1. サンプルデッキ（108枚）を複製（再生成時、同名の旧スライドはゴミ箱へ移す）
+  const outFolder = caseFolder_(cfg, data.name);
+  const slideName = '【スライド】' + data.name;
+  const trashed = trashSameName_(outFolder, slideName);
+  if (trashed) warnings.push('旧スライド' + trashed + '件をゴミ箱へ移しました（30日以内なら復元可）');
+  const copyFile = DriveApp.getFileById(cfg.TEMPLATE_SLIDE_ID).makeCopy(slideName, outFolder);
   const pres = SlidesApp.openById(copyFile.getId());
   const slides = pres.getSlides();
   if (slides.length !== 108) warnings.push('テンプレ枚数が108ではありません: ' + slides.length + '枚（TEMPLATE_SLIDE_IDがサンプル108枚版か確認）');
@@ -116,6 +119,21 @@ function exportDaihonTxt_(cfg, data, warnings) {
     file.moveTo(caseFolder_(cfg, data.name));
     warnings.push('台本txt(音声化用): ' + file.getUrl());
   } catch (e) { warnings.push('台本txt書き出し失敗: ' + e); }
+}
+
+/**
+ * フォルダ内の同名ファイルをゴミ箱へ移し、移した件数を返す。
+ * 完全削除ではないので30日以内なら復元できる。再生成で同名が並ぶのを防ぐ用。
+ */
+function trashSameName_(folder, name) {
+  let n = 0;
+  try {
+    const it = folder.getFilesByName(name);
+    while (it.hasNext()) {
+      try { it.next().setTrashed(true); n++; } catch (e) { /* 個別の失敗は無視して続ける */ }
+    }
+  } catch (e) { /* フォルダが読めない場合も生成自体は続ける */ }
+  return n;
 }
 
 // ============================================================
