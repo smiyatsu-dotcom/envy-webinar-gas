@@ -39,6 +39,7 @@ function main() {
     processApprovals_();
     convertLpTexts_();
     processLpFixRequests_();
+    processSlideFixRequests_();
   } finally {
     lock.releaseLock();
   }

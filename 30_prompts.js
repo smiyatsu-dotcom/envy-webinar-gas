@@ -611,3 +611,95 @@ function convertLpTexts_() {
     }
   } catch (e) { Logger.log('convertLpTexts_ error: ' + e); }
 }
+
+
+/**
+ * 構成シートの設定タブにスライド不具合の報告セルが無ければ足す。
+ * B13=不具合の内容 / B14=実行チェック / B15=結果（システムが書く）
+ */
+function ensureSlideFixCells_(st) {
+  try {
+    if (String(st.getRange('A12').getValue() || '').trim() !== '') return;
+    if (String(st.getRange('A13').getValue() || '').trim() !== '') return;
+    st.getRange('A12:A15').setValues([
+      ['― スライドの不具合を直したいとき ―'],
+      ['どこがどうおかしいか（枚数と症状）'],
+      ['↑の内容で調べる（チェックすると実行）'],
+      ['結果（システムが書きます）']
+    ]);
+    st.getRange('A12').setFontWeight('bold').setBackground('#efefef');
+    st.getRange('B13').setNote(
+      '例: 42枚目の見出しが枠からはみ出している。79枚目のサービス名が2行に折り返している。\n' +
+      '枚数と症状をセットで書いてください。スクリーンショットは要りません。\n' +
+      '10分ほどで結果がB15に入ります。'
+    );
+    st.getRange('B13').setWrap(true);
+    st.getRange('B15').setWrap(true);
+    if (st.getRange('B14').getDataValidation() === null) st.getRange('B14').insertCheckboxes();
+    st.setRowHeight(13, 60);
+    st.setRowHeight(15, 80);
+  } catch (e) { /* 既存シートの体裁は壊さない */ }
+}
+
+/**
+ * スライド不具合の報告を指示ファイルにし、返ってきた結果をシートへ書き戻す。
+ * 調査は宮津さんのMacの見張りが行う。★本番への反映は人が手で行う。
+ */
+function processSlideFixRequests_() {
+  const cfg = getConfig_();
+  const rows = mgmtSheet_(cfg).getDataRange().getValues();
+
+  for (let i = 1; i < rows.length; i++) {
+    const projectName = rows[i][1];
+    const kouseiUrl = rows[i][3];
+    const slideUrl = rows[i][4];
+    if (!projectName || !kouseiUrl) continue;
+
+    let st;
+    try {
+      st = SpreadsheetApp.openById(idFromUrl_(String(kouseiUrl))).getSheetByName(TABS.SETTINGS);
+    } catch (e) { continue; }
+    if (!st) continue;
+    ensureSlideFixCells_(st);
+
+    let folder;
+    try { folder = caseFolder_(cfg, projectName); } catch (e) { continue; }
+
+    // 見張りが書いた結果があればシートへ移して消す
+    try {
+      const res = folder.getFilesByName('【結果】スライド_' + projectName + '.txt');
+      while (res.hasNext()) {
+        const rf = res.next();
+        st.getRange('B15').setValue(rf.getBlob().getDataAsString('UTF-8'));
+        rf.setTrashed(true);
+      }
+    } catch (e) { /* 取り込み失敗でも受付は続ける */ }
+
+    if (st.getRange('B14').getValue() !== true) continue;
+    st.getRange('B14').setValue(false);
+    const req = String(st.getRange('B13').getValue() || '').trim();
+    if (!req) continue;
+
+    try {
+      const body = [
+        '# スライド不具合の調査依頼 — ' + caseCompany_(projectName),
+        '',
+        '## PMからの報告',
+        req,
+        '',
+        '## スライド',
+        slideUrl ? String(slideUrl) : '（URLが管理シートにありません。案件フォルダの【スライド】を開いてください）',
+        '',
+        '## 案件フォルダ',
+        '【固定】ウェビナー自動生成/【出力】生成物/' + projectName + '/'
+      ].join('\n');
+      const fname = '【指示】スライド_' + projectName + '.txt';
+      const old = folder.getFilesByName(fname);
+      while (old.hasNext()) old.next().setTrashed(true);
+      folder.createFile(fname, body, MimeType.PLAIN_TEXT);
+      st.getRange('B15').setValue('調べています（10分ほどお待ちください）');
+    } catch (e) {
+      st.getRange('B15').setValue('エラー: ' + String(e));
+    }
+  }
+}
