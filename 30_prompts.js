@@ -447,6 +447,31 @@ function createLpOrderFile_(projectName, hearing, folder) {
  * ★名前を「【指示】修正LP_」にする。「【LP】」で始めると convertLpTexts_ に
  *   拾われてDoc化され消える。「【指示】LP_」だと新規生成の見張りが拾ってしまう。
  */
+/**
+ * 構成シートの設定タブにLP修正依頼のセルが無ければ足す。
+ * この機能より前に作られた案件でも使えるようにするため、毎回そっと確認する。
+ * 既にあるときは何もしない（A8の見出しの有無で判定）。
+ */
+function ensureLpFixCells_(st) {
+  try {
+    if (String(st.getRange('A8').getValue() || '').indexOf('LPを直したいとき') >= 0) return;
+    st.getRange('A8:A10').setValues([
+      ['― LPを直したいとき ―'],
+      ['直したい内容（まとめて書く）'],
+      ['↑の内容で直す（チェックすると実行）']
+    ]);
+    st.getRange('A8').setFontWeight('bold').setBackground('#efefef');
+    st.getRange('B9').setNote(
+      '例: サブタイトルをもっと現象寄りに。学べる内容の3つ目が抽象的。\n' +
+      '細かく何度も出すより、1回にまとめて書いてください。\n' +
+      'チェックを入れると15分ほどでLPが直り、チェックは自動で外れます。'
+    );
+    st.getRange('B9').setWrap(true);
+    if (st.getRange('B10').getDataValidation() === null) st.getRange('B10').insertCheckboxes();
+    st.setRowHeight(9, 60);
+  } catch (e) { /* 既存シートの体裁は壊さない。失敗しても黙って進む */ }
+}
+
 function processLpFixRequests_() {
   const cfg = getConfig_();
   const rows = mgmtSheet_(cfg).getDataRange().getValues();
@@ -462,6 +487,10 @@ function processLpFixRequests_() {
       st = SpreadsheetApp.openById(idFromUrl_(String(kouseiUrl))).getSheetByName(TABS.SETTINGS);
     } catch (e) { continue; }
     if (!st) continue;
+
+    // 新しいセルが無い構成シート（この機能より前に作られたもの）には足しておく
+    ensureLpFixCells_(st);
+
     if (st.getRange('B10').getValue() !== true) continue;
 
     // チェックは先に外す。途中で失敗しても同じ依頼を延々と回さないため。
