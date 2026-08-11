@@ -38,6 +38,7 @@ function main() {
     processImports_();
     processApprovals_();
     convertLpTexts_();
+    processLpFixRequests_();
   } finally {
     lock.releaseLock();
   }

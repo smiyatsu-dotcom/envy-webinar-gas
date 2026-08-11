@@ -25,6 +25,23 @@ function createKouseiScaffold_(projectName, hearingId, promptDocUrl) {
   st.getRange('B3').setValue('AI出力待ち');
   st.getRange('B4').setValue(hearingId);
   st.getRange('B6').setValue(promptDocUrl || '');
+
+  // ---- LPの修正依頼（Claude Codeを触らずにLPを直すための入口） ----
+  st.getRange('A8:A10').setValues([
+    ['― LPを直したいとき ―'],
+    ['直したい内容（まとめて書く）'],
+    ['↑の内容で直す（チェックすると実行）']
+  ]);
+  st.getRange('A8').setFontWeight('bold').setBackground('#efefef');
+  st.getRange('B9').setNote(
+    '例: サブタイトルをもっと現象寄りに。学べる内容の3つ目が抽象的。\n' +
+    '細かく何度も出すより、1回にまとめて書いてください。\n' +
+    'チェックを入れると15分ほどでLPが直り、チェックは自動で外れます。'
+  );
+  st.getRange('B9').setWrap(true);
+  st.getRange('B10').insertCheckboxes();
+  st.setRowHeight(9, 60);
+
   st.setColumnWidth(1, 240).setColumnWidth(2, 480);
 
   // ---- AI出力貼り付けタブ ----

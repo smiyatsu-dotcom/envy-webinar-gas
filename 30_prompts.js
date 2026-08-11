@@ -434,6 +434,85 @@ function createLpOrderFile_(projectName, hearing, folder) {
   return folder.createFile(name, buildLpPrompt_(projectName, hearing), MimeType.PLAIN_TEXT);
 }
 
+// ============================================================
+// LPの修正依頼（構成シート 設定タブ B9/B10）→ 指示ファイル
+// ============================================================
+/**
+ * PMが構成シートに書いた修正依頼を拾い、指示ファイルにして案件フォルダへ置く。
+ * 見張り（宮津さんのMacの ~/.claude/envy-webinar-watch）が1分ごとに拾って直す。
+ *
+ * ★いまのLP本文を指示ファイルに埋め込むのが肝。LPは既にGoogleドキュメントに
+ *   変換され、元のtxtは捨てられているため、Claude Codeはローカルから中身を
+ *   読めない（.gdoc は214バイトのショートカット）。GAS側で読んで渡す。
+ * ★名前を「【指示】修正LP_」にする。「【LP】」で始めると convertLpTexts_ に
+ *   拾われてDoc化され消える。「【指示】LP_」だと新規生成の見張りが拾ってしまう。
+ */
+function processLpFixRequests_() {
+  const cfg = getConfig_();
+  const rows = mgmtSheet_(cfg).getDataRange().getValues();
+
+  for (let i = 1; i < rows.length; i++) {
+    const hearingId = rows[i][0];
+    const projectName = rows[i][1];
+    const kouseiUrl = rows[i][3];
+    if (!projectName || !kouseiUrl) continue;
+
+    let st;
+    try {
+      st = SpreadsheetApp.openById(idFromUrl_(String(kouseiUrl))).getSheetByName(TABS.SETTINGS);
+    } catch (e) { continue; }
+    if (!st) continue;
+    if (st.getRange('B10').getValue() !== true) continue;
+
+    // チェックは先に外す。途中で失敗しても同じ依頼を延々と回さないため。
+    st.getRange('B10').setValue(false);
+
+    const req = String(st.getRange('B9').getValue() || '').trim();
+    if (!req) continue;
+
+    try {
+      const company = caseCompany_(projectName);
+      const folder = caseFolder_(cfg, projectName);
+
+      // いまのLP本文（Googleドキュメント）を読む
+      let lpText = '';
+      const it = folder.getFilesByName('【LP】' + company);
+      while (it.hasNext()) {
+        const f = it.next();
+        if (f.getMimeType() === MimeType.GOOGLE_DOCS) {
+          lpText = DocumentApp.openById(f.getId()).getBody().getText();
+          break;
+        }
+      }
+      if (!lpText) { st.getRange('B3').setValue('LP修正: LPドキュメントが見つかりません'); continue; }
+
+      const hearing = readHearing_(hearingId);
+      const body = [
+        '# LP修正の指示 — ' + company,
+        '',
+        '## 直したい内容（PMからの依頼）',
+        req,
+        '',
+        '## いまのLP本文（これを直す。1行目がサブタイトル、2行目がメインタイトル）',
+        lpText,
+        '',
+        '## ヒアリング内容（事実の根拠。ここに書かれていないことは足さない）',
+        '【オファー記入用】', hearing.offer,
+        '【問題教育の記入用】', hearing.problem,
+        '【ストーリーの記入用】', hearing.story
+      ].join('\n');
+
+      const fname = '【指示】修正LP_' + company + '.txt';
+      const old = folder.getFilesByName(fname);
+      while (old.hasNext()) old.next().setTrashed(true);
+      folder.createFile(fname, body, MimeType.PLAIN_TEXT);
+      st.getRange('B3').setValue('LP修正: 依頼を受け付けました（15分ほどで直ります）');
+    } catch (e) {
+      st.getRange('B3').setValue('LP修正: エラー ' + String(e));
+    }
+  }
+}
+
 
 // ============================================================
 // LPテキスト → Googleドキュメント自動変換
