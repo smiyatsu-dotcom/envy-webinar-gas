@@ -70,7 +70,8 @@ function processNewHearings_() {
       // お客様に共有する納品物の置き場所。同じく補助なので止めない
       try { deliveryFolder_(cfg, f.getName()); } catch (e) { Logger.log('納品フォルダの作成に失敗: ' + e); }  // 70_delivery_folder.gs
       upsertRow_(cfg, f.getId(), f.getName(), 'AI出力待ち', ss.getUrl(), '',
-        '自動生成中です（LP・サムネイル・資料）。30〜60分たっても揃わないときは宮津さんへ。手動で回すときのプロンプトDoc: ' + doc.getUrl());
+        '自動生成中です。LPは20分・サムネイルは30分・資料は50分ほど（手順書と同じ目安）。'
+        + '1時間半たっても資料が揃わないときは宮津さんへ。手動で回すときのプロンプトDoc: ' + doc.getUrl());
     } catch (e) {
       upsertRow_(cfg, f.getId(), f.getName(), 'エラー', '', '', String(e));
     }
