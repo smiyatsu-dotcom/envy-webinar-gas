@@ -454,7 +454,13 @@ function createLpOrderFile_(projectName, hearing, folder) {
  */
 function ensureLpFixCells_(st) {
   try {
-    if (String(st.getRange('A8').getValue() || '').indexOf('LPを直したいとき') >= 0) return;
+    // ★空のときだけ書く。既に何か書いてあるシートを上書きしない。
+    //   （既存の構成シートは A1:A6 までしか使っていないが、手で書き足されている
+    //     可能性があるので、無条件に setValues しない）
+    const a8 = String(st.getRange('A8').getValue() || '').trim();
+    if (a8 !== '') return;
+    if (String(st.getRange('A9').getValue() || '').trim() !== '') return;
+    if (String(st.getRange('A10').getValue() || '').trim() !== '') return;
     st.getRange('A8:A10').setValues([
       ['― LPを直したいとき ―'],
       ['直したい内容（まとめて書く）'],
