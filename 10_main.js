@@ -69,7 +69,7 @@ function processNewHearings_() {
       // お客様に共有する納品物の置き場所。同じく補助なので止めない
       try { deliveryFolder_(cfg, f.getName()); } catch (e) { Logger.log('納品フォルダの作成に失敗: ' + e); }  // 70_delivery_folder.gs
       upsertRow_(cfg, f.getId(), f.getName(), 'AI出力待ち', ss.getUrl(), '',
-        'プロンプトDoc: ' + doc.getUrl() + ' → Claudeで実行し、構成シート「' + PASTE_TAB + '」タブへ貼り付けてください');
+        '自動生成中です（LP・サムネイル・資料）。30〜60分たっても揃わないときは宮津さんへ。手動で回すときのプロンプトDoc: ' + doc.getUrl());
     } catch (e) {
       upsertRow_(cfg, f.getId(), f.getName(), 'エラー', '', '', String(e));
     }

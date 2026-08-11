@@ -330,7 +330,10 @@ function createPromptDoc_(projectName, hearingId) {
   doc.getBody().setText(buildManualPrompt_(hearing, assetLists, projectName));
   doc.saveAndClose();
   DriveApp.getFileById(doc.getId()).moveTo(folder);
-  // LP生成の指示ファイル（見張りが拾って無人でLPを作る）も同じ案件フォルダへ
+  // 見張りが拾って無人で作るための指示ファイル。資料とLPの2本。
+  // ★Docも残してある。中身は指示ファイルと同じなので、自動生成が失敗したときは
+  //   Docを開いてClaude Codeに貼れば手動で回せる（フォールバック）。
+  createShiryoOrderFile_(projectName, hearing, assetLists, folder);
   createLpOrderFile_(projectName, hearing, folder);
   return doc;
 }
@@ -426,6 +429,21 @@ function buildLpPrompt_(projectName, hearing) {
  * ★Googleドキュメントではなくtxtにするのは、.gdoc はローカルには214バイトの
  *   ショートカットしか同期されず、Claude Codeが中身を読めないため。
  */
+/**
+ * 資料生成（構成テキスト・台本・デザインJSON）の指示ファイルを案件フォルダへ置く。
+ * 見張り（宮津さんのMacの ~/.claude/envy-webinar-watch）が1分ごとに拾い、
+ * 無人で3つのtxtを作る。その後は既存の processImports_ が構成シートへ流し込む。
+ *
+ * ★名前は「【指示】資料_」。他の見張りが拾う名前（【指示】LP_ / 【指示】修正LP_ /
+ *   【指示】サムネ_）とも、convertLpTexts_ が拾う「【LP】」とも重ならない。
+ */
+function createShiryoOrderFile_(projectName, hearing, assetLists, folder) {
+  const name = '【指示】資料_' + caseCompany_(projectName) + '.txt';
+  const old = folder.getFilesByName(name);
+  while (old.hasNext()) old.next().setTrashed(true);
+  return folder.createFile(name, buildManualPrompt_(hearing, assetLists, projectName), MimeType.PLAIN_TEXT);
+}
+
 function createLpOrderFile_(projectName, hearing, folder) {
   const name = '【指示】LP_' + caseCompany_(projectName) + '.txt';
   // 再生成のときに二重にならないよう、同名の古い指示ファイルは先に捨てる
