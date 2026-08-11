@@ -330,8 +330,8 @@ function createPromptDoc_(projectName, hearingId) {
   doc.getBody().setText(buildManualPrompt_(hearing, assetLists, projectName));
   doc.saveAndClose();
   DriveApp.getFileById(doc.getId()).moveTo(folder);
-  // LP生成用プロンプト（Claude Codeに貼る自己完結型）も同じ案件フォルダへ
-  createLpPromptDoc_(projectName, hearing, folder);
+  // LP生成の指示ファイル（見張りが拾って無人でLPを作る）も同じ案件フォルダへ
+  createLpOrderFile_(projectName, hearing, folder);
   return doc;
 }
 
@@ -415,12 +415,23 @@ function buildLpPrompt_(projectName, hearing) {
     '\n\n【ストーリーの記入用】\n' + hearing.story + '\n';
 }
 
-function createLpPromptDoc_(projectName, hearing, folder) {
-  const doc = DocumentApp.create('【LPプロンプト】' + caseCompany_(projectName));
-  doc.getBody().setText(buildLpPrompt_(projectName, hearing));
-  doc.saveAndClose();
-  DriveApp.getFileById(doc.getId()).moveTo(folder);
-  return doc;
+/**
+ * LP生成の指示ファイルを案件フォルダへ置く。
+ * 宮津さんのMacの見張り（~/.claude/envy-webinar-watch/watch.sh）が1分ごとに拾い、
+ * 無人でLPを生成して【LP】◯◯社.txt を書き、この指示ファイルを消す。
+ *
+ * ★名前を「【LPプロンプト】…」にしてはいけない。convertLpTexts_() が
+ *   「【LP】で始まる.txt」をGoogleドキュメントへ変換して元txtを捨てるため、
+ *   指示ファイルが処理される前に消える。だから「【指示】LP_」で始める。
+ * ★Googleドキュメントではなくtxtにするのは、.gdoc はローカルには214バイトの
+ *   ショートカットしか同期されず、Claude Codeが中身を読めないため。
+ */
+function createLpOrderFile_(projectName, hearing, folder) {
+  const name = '【指示】LP_' + caseCompany_(projectName) + '.txt';
+  // 再生成のときに二重にならないよう、同名の古い指示ファイルは先に捨てる
+  const old = folder.getFilesByName(name);
+  while (old.hasNext()) old.next().setTrashed(true);
+  return folder.createFile(name, buildLpPrompt_(projectName, hearing), MimeType.PLAIN_TEXT);
 }
 
 
