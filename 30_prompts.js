@@ -487,7 +487,8 @@ function ensureLpFixCells_(st) {
     st.getRange('A8').setFontWeight('bold').setBackground('#efefef');
     st.getRange('B9').setNote(
       '例: サブタイトルをもっと現象寄りに。学べる内容の3つ目が抽象的。\n' +
-      '細かく何度も出すより、1回にまとめて書いてください。\n' +
+      '細かく何度も出すより、1回にまとめて書いてください。1回ごとにAIが動くので、\n' +
+      '小刻みに出すとその分だけ費用がかかります。\n' +
       'チェックを入れると15分ほどでLPが直り、チェックは自動で外れます。'
     );
     st.getRange('B9').setWrap(true);
@@ -623,7 +624,7 @@ function ensureSlideFixCells_(st) {
     if (String(st.getRange('A13').getValue() || '').trim() !== '') return;
     st.getRange('A12:A15').setValues([
       ['― スライドの不具合を直したいとき ―'],
-      ['どこがどうおかしいか（枚数と症状）'],
+      ['どこがどうおかしいか（まとめて書く）'],
       ['↑の内容で調べる（チェックすると実行）'],
       ['結果（システムが書きます）']
     ]);
@@ -631,7 +632,9 @@ function ensureSlideFixCells_(st) {
     st.getRange('B13').setNote(
       '例: 42枚目の見出しが枠からはみ出している。79枚目のサービス名が2行に折り返している。\n' +
       '枚数と症状をセットで書いてください。スクリーンショットは要りません。\n' +
-      '10分ほどで結果がB15に入ります。'
+      '細かく何度も出すより、1回にまとめて書いてください。1回ごとにAIが動くので、\n' +
+      '小刻みに出すとその分だけ費用がかかります。\n' +
+      '10分ほどで結果がB15に入り、チェックは自動で外れます。'
     );
     st.getRange('B13').setWrap(true);
     st.getRange('B15').setWrap(true);
