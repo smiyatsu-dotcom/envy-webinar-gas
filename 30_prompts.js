@@ -667,7 +667,7 @@ function processSlideFixRequests_() {
 
     // 見張りが書いた結果があればシートへ移して消す
     try {
-      const res = folder.getFilesByName('【結果】スライド_' + projectName + '.txt');
+      const res = folder.getFilesByName('【結果】スライド_' + caseCompany_(projectName) + '.txt');
       while (res.hasNext()) {
         const rf = res.next();
         st.getRange('B15').setValue(rf.getBlob().getDataAsString('UTF-8'));
@@ -693,7 +693,7 @@ function processSlideFixRequests_() {
         '## 案件フォルダ',
         '【固定】ウェビナー自動生成/【出力】生成物/' + projectName + '/'
       ].join('\n');
-      const fname = '【指示】スライド_' + projectName + '.txt';
+      const fname = '【指示】スライド_' + caseCompany_(projectName) + '.txt';
       const old = folder.getFilesByName(fname);
       while (old.hasNext()) old.next().setTrashed(true);
       folder.createFile(fname, body, MimeType.PLAIN_TEXT);
