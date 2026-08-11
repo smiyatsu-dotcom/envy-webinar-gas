@@ -62,14 +62,18 @@ function processNewHearings_() {
       }
       continue;
     }
+    // ★案件名は必ず前後の空白を落とす。Driveで「コピーを作成」してリネームすると
+    //   末尾に空白が残ることがあり、そのまま使うと【台本】◯◯ .txt のように
+    //   目に見えない空白入りのファイル名が量産される（2026-08-11 実測）。
+    const pname = String(f.getName()).trim();
     try {
-      const doc = createPromptDoc_(f.getName(), f.getId());       // 30_prompts.gs
-      const ss = createKouseiScaffold_(f.getName(), f.getId(), doc.getUrl()); // 40_kousei_sheet.gs
+      const doc = createPromptDoc_(pname, f.getId());       // 30_prompts.gs
+      const ss = createKouseiScaffold_(pname, f.getId(), doc.getUrl()); // 40_kousei_sheet.gs
       // 4章で使うURLの入れ物。補助なので、失敗しても本体は止めない
-      try { createUrlSheet_(cfg, f.getName()); } catch (e) { Logger.log('URL管理シートの作成に失敗: ' + e); }  // 60_url_sheet.gs
+      try { createUrlSheet_(cfg, pname); } catch (e) { Logger.log('URL管理シートの作成に失敗: ' + e); }  // 60_url_sheet.gs
       // お客様に共有する納品物の置き場所。同じく補助なので止めない
-      try { deliveryFolder_(cfg, f.getName()); } catch (e) { Logger.log('納品フォルダの作成に失敗: ' + e); }  // 70_delivery_folder.gs
-      upsertRow_(cfg, f.getId(), f.getName(), 'AI出力待ち', ss.getUrl(), '',
+      try { deliveryFolder_(cfg, pname); } catch (e) { Logger.log('納品フォルダの作成に失敗: ' + e); }  // 70_delivery_folder.gs
+      upsertRow_(cfg, f.getId(), pname, 'AI出力待ち', ss.getUrl(), '',
         '自動生成中です。LPは20分・サムネイルは30分・資料は50分ほど（手順書と同じ目安）。'
         + '1時間半たっても資料が揃わないときは宮津さんへ。手動で回すときのプロンプトDoc: ' + doc.getUrl());
     } catch (e) {
