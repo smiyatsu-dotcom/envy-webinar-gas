@@ -31,6 +31,7 @@ function createKouseiScaffold_(projectName, hearingId, promptDocUrl) {
   //   既存シートの自己修復にも同じ関数が使われる。2か所に書くと必ず片方が古くなる。
   ensureLpFixCells_(st);        // A8:A10
   ensureSlideFixCells_(st);     // A12:A15
+  ensureSlideRegenCell_(st);    // A16
   ensureTitleConfirmCells_(st); // A17:A19
   ensureDeliverCells_(st);      // A21:A23
 

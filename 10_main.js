@@ -37,6 +37,7 @@ function main() {
     processNewHearings_();
     processImports_();
     processApprovals_();
+    processSlideRegen_();
     convertLpTexts_();
     processTitleConfirm_();
     processLpFixRequests_();
@@ -215,4 +216,50 @@ function testGenerateSlides() {
   const result = generateSlides_(kouseiId);
   Logger.log('スライド: ' + result.pres.getUrl());
   Logger.log('警告: ' + result.warnings.join('\n'));
+}
+// ============================================================
+// フェーズ3b: 「スライドを作り直す」チェック → その場で再生成
+//
+// これまでは PM が3手順（管理シートC列を戻す → mp3を消す → 承認OFF→ON）を
+// 踏む必要があり、面倒なうえに mp3 の消し忘れで古い音声が残る事故が起きていた。
+// チェック1つで全部やる。AIは動かないので費用はかからない。
+// ============================================================
+function processSlideRegen_() {
+  const cfg = getConfig_();
+  const rows = mgmtSheet_(cfg).getDataRange().getValues();
+
+  for (let i = 1; i < rows.length; i++) {
+    const hearingId = rows[i][0];
+    const projectName = rows[i][1];
+    const kouseiUrl = rows[i][3];
+    if (!projectName || !kouseiUrl) continue;
+
+    const kouseiId = idFromUrl_(String(kouseiUrl));
+    let st;
+    try { st = SpreadsheetApp.openById(kouseiId).getSheetByName(TABS.SETTINGS); } catch (e) { continue; }
+    if (!st) continue;
+
+    ensureSlideRegenCell_(st);
+
+    if (st.getRange('B16').getValue() !== true) continue;
+    st.getRange('B16').setValue(false);   // 先に外す。失敗しても回し続けない
+
+    // 古い音声を消す。残っていると見張りが「もうある」と判断して作り直さない
+    try {
+      const folder = caseFolder_(cfg, String(projectName));
+      const mp3 = folder.getFilesByName('【音声】' + caseCompany_(String(projectName)) + '.mp3');
+      while (mp3.hasNext()) mp3.next().setTrashed(true);
+    } catch (e) { /* 音声が無くても再生成は進める */ }
+
+    upsertRow_(cfg, hearingId, projectName, 'スライド生成中', kouseiUrl, '', '作り直し中');
+    setKouseiStatus_(kouseiId, 'スライド生成中（作り直し）');
+    try {
+      const result = generateSlides_(kouseiId);   // 50_slides.gs
+      upsertRow_(cfg, hearingId, projectName, '完了', kouseiUrl, result.pres.getUrl(), result.warnings.join(' / '));
+      setKouseiStatus_(kouseiId, 'スライド生成済み: ' + result.pres.getUrl());
+    } catch (e) {
+      upsertRow_(cfg, hearingId, projectName, 'エラー', kouseiUrl, '', String(e));
+      setKouseiStatus_(kouseiId, 'エラー: ' + String(e));
+    }
+  }
 }

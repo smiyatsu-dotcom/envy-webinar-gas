@@ -783,3 +783,24 @@ function processTitleConfirm_() {
     }
   }
 }
+
+/**
+ * スライドを作り直すチェック（設定タブ A16 / B16）。
+ * ★不具合の調査（B14）とは別物。こちらはAIを使わず、
+ *   今の4タブの中身からスライドを組み直すだけ。
+ *   これまで再生成には「管理シートC列を戻す→mp3を消す→承認OFF→ON」の
+ *   3手順が必要で、面倒なうえにmp3の消し忘れ事故が起きていた。
+ */
+function ensureSlideRegenCell_(st) {
+  try {
+    if (String(st.getRange('A16').getValue() || '').trim() !== '') return;
+    st.getRange('A16').setValue('スライドを作り直す（チェックすると実行）');
+    st.getRange('B16').setNote(
+      '4タブのセルを直したあと、ここにチェックを入れるとスライドを作り直します。AIは動きません。\n' +
+      '古いスライド・台本txt・音声mp3は自動でゴミ箱へ移り、音声も作り直されます。\n' +
+      '★スライドを手で直接編集していた場合、その編集は消えます。\n' +
+      '不具合の原因を調べてほしいときは、B13とB14のほうを使ってください。'
+    );
+    if (st.getRange('B16').getDataValidation() === null) st.getRange('B16').insertCheckboxes();
+  } catch (e) { /* 既存シートの体裁は壊さない */ }
+}
