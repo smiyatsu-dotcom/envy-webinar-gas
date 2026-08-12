@@ -778,29 +778,22 @@ function findZukai_(folder, def, row) {
   if (m) keyword = m[1];
   const partialOnly = def.img === '*プロフ';
   const key = normalizeKey_(partialOnly ? 'プロフ' : keyword);
-  // ★同じ名前でGIFとPNGの両方があるときはPNGを使う。
-  //   以前はGIFを優先していたが、図解を動かす必要は無いという判断になった
-  //   （2026-08-12）。GIFしか無い図解のために、PNGが無ければGIFを使う逃げ道は残す。
-  let exact = null, exactGif = null, partial = null, partialGif = null;
+  // ★GIFは使わない。図解はPNGで統一し、GIFはそもそも作らない運用になった（2026-08-12）。
+  //   古い案件のフォルダにGIFが残っていても拾わない。
+  //   PNGが1枚も無ければ見つからない扱いになり、管理シートF列に「図解未発見」が出る。
+  //   黙って動く画像が入るより、見つからないと言われるほうがよい。
+  let exact = null, partial = null;
   const files = folder.getFiles();
   while (files.hasNext()) {
     const f = files.next();
     const mime = f.getMimeType();
     if (mime.indexOf('image/') !== 0) continue;
-    const isGif = mime === 'image/gif';
+    if (mime === 'image/gif') continue;
     const nk = normalizeKey_(f.getName());
-    if (!partialOnly && nk === key) {
-      // ★GIFで打ち切らない。打ち切るとPNGに辿り着く前に探索が終わり、
-      //   戻り値の順番だけ入れ替えても結局GIFが返る。
-      if (isGif) { if (!exactGif) exactGif = f; continue; }
-      exact = f; break;   // PNG（GIF以外）が見つかった時点で確定
-    }
-    if (nk.indexOf(key) !== -1) {
-      if (isGif) { if (!partialGif) partialGif = f; }
-      else if (!partial) partial = f;
-    }
+    if (!partialOnly && nk === key) { exact = f; break; }
+    if (nk.indexOf(key) !== -1 && !partial) partial = f;
   }
-  return exact || exactGif || partial || partialGif;
+  return exact || partial;
 }
 
 // ============================================================
