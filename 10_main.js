@@ -41,6 +41,7 @@ function main() {
     processTitleConfirm_();
     processLpFixRequests_();
     processSlideFixRequests_();
+    processDelivery_();
   } finally {
     lock.releaseLock();
   }

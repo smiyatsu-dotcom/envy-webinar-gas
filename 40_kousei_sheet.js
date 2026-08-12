@@ -32,6 +32,7 @@ function createKouseiScaffold_(projectName, hearingId, promptDocUrl) {
   ensureLpFixCells_(st);        // A8:A10
   ensureSlideFixCells_(st);     // A12:A15
   ensureTitleConfirmCells_(st); // A17:A19
+  ensureDeliverCells_(st);      // A21:A23
 
   st.setColumnWidth(1, 240).setColumnWidth(2, 480);
 
