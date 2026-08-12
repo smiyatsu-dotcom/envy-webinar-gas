@@ -38,6 +38,7 @@ function main() {
     processImports_();
     processApprovals_();
     convertLpTexts_();
+    processTitleConfirm_();
     processLpFixRequests_();
     processSlideFixRequests_();
   } finally {

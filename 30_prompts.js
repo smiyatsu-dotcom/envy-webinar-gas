@@ -706,3 +706,81 @@ function processSlideFixRequests_() {
     }
   }
 }
+
+/**
+ * タイトル確定のセルを用意する（設定タブ A17:A19 / B18:B19）。
+ * ★「タイトル案を見て、選んでからサムネイル」の関門。
+ *   これが無いと、LPができた瞬間にサムネイルが自動で作られてしまい、
+ *   PMがタイトルを選ぶ余地が無くなる。
+ * A17=見出し / A18=タイトル案の置き場所（B18にリンク） / A19=確定チェック（B19）
+ */
+function ensureTitleConfirmCells_(st) {
+  try {
+    if (String(st.getRange('A17').getValue() || '').trim() !== '') return;
+    if (String(st.getRange('A18').getValue() || '').trim() !== '') return;
+    st.getRange('A17:A19').setValues([
+      ['― タイトルを決めるとサムネイルを作ります ―'],
+      ['タイトル案10本（システムが書きます）'],
+      ['この案でよければチェック（サムネイル生成）']
+    ]);
+    st.getRange('A17').setFontWeight('bold').setBackground('#efefef');
+    st.getRange('B19').setNote(
+      'B18のタイトル案を開いて、推薦1位でよければここにチェックを入れてください。\n' +
+      '10分ほどでサムネイル画像ができます。\n' +
+      '別の案がよければ、ここは押さずにB9へ「タイトルを案7にしてください」と書いてB10を押してください。\n' +
+      'その場合はLPが書き直され、サムネイルも新しいタイトルで自動的に作られます。'
+    );
+    if (st.getRange('B19').getDataValidation() === null) st.getRange('B19').insertCheckboxes();
+  } catch (e) { /* 既存シートの体裁は壊さない */ }
+}
+
+/**
+ * タイトル案のリンクをB18に出し、B19が押されたら
+ * 【保留】サムネ指示_◯◯.txt を【指示】サムネ_◯◯.txt に改名する。
+ * 改名した瞬間から、宮津さんのMacの見張りがそれを拾って画像を作る。
+ */
+function processTitleConfirm_() {
+  const cfg = getConfig_();
+  const rows = mgmtSheet_(cfg).getDataRange().getValues();
+
+  for (let i = 1; i < rows.length; i++) {
+    const projectName = rows[i][1];
+    const kouseiUrl = rows[i][3];
+    if (!projectName || !kouseiUrl) continue;
+
+    let st;
+    try {
+      st = SpreadsheetApp.openById(idFromUrl_(String(kouseiUrl))).getSheetByName(TABS.SETTINGS);
+    } catch (e) { continue; }
+    if (!st) continue;
+
+    ensureTitleConfirmCells_(st);
+
+    let folder;
+    try { folder = caseFolder_(cfg, String(projectName)); } catch (e) { continue; }
+    const company = caseCompany_(String(projectName));
+
+    // タイトル案ができていたら、その場所をB18に出す（PMが探さなくて済むように）
+    try {
+      if (!String(st.getRange('B18').getValue() || '').trim()) {
+        const tf = folder.getFilesByName('【タイトル案】' + company + '.txt');
+        if (tf.hasNext()) st.getRange('B18').setValue(tf.next().getUrl());
+      }
+    } catch (e) { /* リンクは補助。失敗しても確定処理は続ける */ }
+
+    if (st.getRange('B19').getValue() !== true) continue;
+    st.getRange('B19').setValue(false);   // 先に外す。失敗しても同じ依頼を回し続けない
+
+    try {
+      const held = folder.getFilesByName('【保留】サムネ指示_' + company + '.txt');
+      if (!held.hasNext()) {
+        st.getRange('B3').setValue('サムネイル: 保留中の指示が見つかりません（LPがまだできていないか、既に作成済み）');
+        continue;
+      }
+      held.next().setName('【指示】サムネ_' + company + '.txt');
+      st.getRange('B3').setValue('サムネイル: 作り始めます（10分ほどで素材フォルダにできます）');
+    } catch (e) {
+      st.getRange('B3').setValue('サムネイル: エラー ' + String(e));
+    }
+  }
+}
