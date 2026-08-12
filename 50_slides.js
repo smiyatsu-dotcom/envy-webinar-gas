@@ -778,7 +778,9 @@ function findZukai_(folder, def, row) {
   if (m) keyword = m[1];
   const partialOnly = def.img === '*プロフ';
   const key = normalizeKey_(partialOnly ? 'プロフ' : keyword);
-  // 同じ名前でGIFとPNGの両方がある場合はGIFを使う（図解1〜6はPNGのあとにGIFも出力されるため）
+  // ★同じ名前でGIFとPNGの両方があるときはPNGを使う。
+  //   以前はGIFを優先していたが、図解を動かす必要は無いという判断になった
+  //   （2026-08-12）。GIFしか無い図解のために、PNGが無ければGIFを使う逃げ道は残す。
   let exact = null, exactGif = null, partial = null, partialGif = null;
   const files = folder.getFiles();
   while (files.hasNext()) {
@@ -788,16 +790,17 @@ function findZukai_(folder, def, row) {
     const isGif = mime === 'image/gif';
     const nk = normalizeKey_(f.getName());
     if (!partialOnly && nk === key) {
-      if (isGif) { exactGif = f; break; }
-      if (!exact) exact = f;
-      continue;
+      // ★GIFで打ち切らない。打ち切るとPNGに辿り着く前に探索が終わり、
+      //   戻り値の順番だけ入れ替えても結局GIFが返る。
+      if (isGif) { if (!exactGif) exactGif = f; continue; }
+      exact = f; break;   // PNG（GIF以外）が見つかった時点で確定
     }
     if (nk.indexOf(key) !== -1) {
       if (isGif) { if (!partialGif) partialGif = f; }
       else if (!partial) partial = f;
     }
   }
-  return exactGif || exact || partialGif || partial;
+  return exact || exactGif || partial || partialGif;
 }
 
 // ============================================================
