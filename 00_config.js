@@ -317,6 +317,51 @@ function caseCompany_(projectName) {
   const nm = String(projectName || '').replace(/[\s_＿\-]*ヒアリングシート\s*$/, '').trim();
   return nm || String(projectName || '');
 }
+// ============================================================
+// 名前でフォルダ・ファイルを探す（濁点の分解に強い版）
+// ============================================================
+/**
+ * ★Macの「Googleドライブ（パソコン版）」から入れたフォルダ・ファイルは、
+ *   名前の濁点が分解された形（NFD。「グ」＝「ク」＋「゛」）でドライブに保存される。
+ *   GASの getFoldersByName / getFilesByName は文字列の完全一致なので、
+ *   合成形（NFC）で問い合わせると、そういう名前は永久に見つからない。
+ *
+ *   実害（2026-08-13 柳澤社）：素材フォルダ「柳澤社_ヒアリングシート」が見つからず、
+ *   図解が1枚も入らないまま、表紙がテンプレート（別会社のロゴ）のスライドができた。
+ *   エラーは出ない。管理シートF列に「図解未発見」が並ぶだけなので、見落とすと客先へ出る。
+ *
+ *   そこで、完全一致で見つからなかったときだけ、中を総なめしてNFCで比べ直す。
+ *   戻り値は getFoldersByName と同じ使い勝手（hasNext / next）にしてある。
+ */
+function nfc_(s) {
+  const t = String(s == null ? '' : s);
+  return t.normalize ? t.normalize('NFC') : t;
+}
+
+function iterByName_(direct, listAll, name) {
+  if (direct.hasNext()) return direct;
+  const want = nfc_(name);
+  const hits = [];
+  const all = listAll();
+  while (all.hasNext()) {
+    const f = all.next();
+    if (nfc_(f.getName()) === want) hits.push(f);
+  }
+  let i = 0;
+  return {
+    hasNext: function () { return i < hits.length; },
+    next: function () { return hits[i++]; }
+  };
+}
+
+function foldersByName_(parent, name) {
+  return iterByName_(foldersByName_(parent, name), function () { return parent.getFolders(); }, name);
+}
+
+function filesByName_(parent, name) {
+  return iterByName_(filesByName_(parent, name), function () { return parent.getFiles(); }, name);
+}
+
 /**
  * 案件フォルダを「探すだけ」。無ければ null を返し、作らない。
  * ★読み取り側は必ずこちらを使うこと。caseFolder_ は無いと作ってしまうので、
@@ -325,13 +370,13 @@ function caseCompany_(projectName) {
  */
 function caseFolderIfExists_(cfg, projectName) {
   const parent = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
-  const it = parent.getFoldersByName(caseCompany_(projectName));
+  const it = foldersByName_(parent, caseCompany_(projectName));
   return it.hasNext() ? it.next() : null;
 }
 
 function caseFolder_(cfg, projectName) {
   const parent = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
   const nm = caseCompany_(projectName);
-  const it = parent.getFoldersByName(nm);
+  const it = foldersByName_(parent, nm);
   return it.hasNext() ? it.next() : parent.createFolder(nm);
 }

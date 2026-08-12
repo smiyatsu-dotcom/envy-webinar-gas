@@ -26,7 +26,7 @@ function generateSlides_(kouseiSheetId) {
   const slides = pres.getSlides();
   if (slides.length !== 108) warnings.push('テンプレ枚数が108ではありません: ' + slides.length + '枚（TEMPLATE_SLIDE_IDがサンプル108枚版か確認）');
 
-  const zukaiFolder = resolveAssetsFolder_(cfg, data);
+  const zukaiFolder = resolveAssetsFolder_(cfg, data, warnings);
   const idx = { ICON_P: buildAssetIndex_(cfg, 'ICON_P'), ICON_W: buildAssetIndex_(cfg, 'ICON_W'),
                 SELECT: buildAssetIndex_(cfg, 'SELECT'),
                 BG85: buildBgIndex_(cfg, '85'), BG25: buildBgIndex_(cfg, '25'), BG15: buildBgIndex_(cfg, '15') };
@@ -133,7 +133,7 @@ function exportDaihonTxt_(cfg, data, warnings) {
 function trashSameName_(folder, name) {
   let n = 0;
   try {
-    const it = folder.getFilesByName(name);
+    const it = filesByName_(folder, name);
     while (it.hasNext()) {
       try { it.next().setTrashed(true); n++; } catch (e) { /* 個別の失敗は無視して続ける */ }
     }
@@ -803,19 +803,27 @@ function setNotesText_(slide, text) {
   const sh = slide.getNotesPage().getSpeakerNotesShape();
   if (sh) sh.getText().setText(text);
 }
-function resolveAssetsFolder_(cfg, data) {
+function resolveAssetsFolder_(cfg, data, warnings) {
   if (data.assetsFolderId) {
     try { return DriveApp.getFolderById(data.assetsFolderId); } catch (e) { /* fallthrough */ }
   }
   const root = DriveApp.getFolderById(cfg.ASSETS_FOLDER_ID);
-  const sub = root.getFoldersByName(data.name);
-  return sub.hasNext() ? sub.next() : root;
+  const sub = foldersByName_(root, data.name);
+  if (sub.hasNext()) return sub.next();
+  // ★ここで黙って素材ルートを返すと、図解が1枚も入らないまま
+  //   「テンプレートのまま（＝別会社のロゴ入り）」のスライドが完成してしまう。
+  //   図解未発見が全行に出るだけでは気づきにくいので、先頭で名指しする。
+  if (warnings) {
+    warnings.push('★素材フォルダが見つかりません: 【素材】投影資料/' + data.name +
+      '（図解は1枚も入りません。フォルダ名が構成シートB1と同じか確認してください）');
+  }
+  return root;
 }
 function resolveNamedFolder_(cfg, key) {
   const pid = PropertiesService.getScriptProperties().getProperty(ASSET_PROP_KEYS[key]);
   if (pid) { try { return DriveApp.getFolderById(pid); } catch (e) { /* next */ } }
   try {
-    const it = DriveApp.getFolderById(cfg.ASSETS_FOLDER_ID).getFoldersByName(ASSET_SUB[key]);
+    const it = foldersByName_(DriveApp.getFolderById(cfg.ASSETS_FOLDER_ID), ASSET_SUB[key]);
     if (it.hasNext()) return it.next();
   } catch (e) { /* next */ }
   try { return DriveApp.getFolderById(DEFAULT_ASSET_IDS[key]); } catch (e) { return null; }
@@ -825,7 +833,7 @@ function buildBgIndex_(cfg, opacity) {
   const index = {};
   const root = resolveNamedFolder_(cfg, 'BG');
   if (!root) return index;
-  const it = root.getFoldersByName(opacity);
+  const it = foldersByName_(root, opacity);
   const folder = it.hasNext() ? it.next() : root; // サブフォルダ未作成時は直下を見る（暫定互換）
   const files = folder.getFiles();
   while (files.hasNext()) {

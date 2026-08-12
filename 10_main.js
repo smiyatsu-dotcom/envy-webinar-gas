@@ -248,7 +248,7 @@ function processSlideRegen_() {
     try {
       const folder = caseFolderIfExists_(cfg, String(projectName));
       if (!folder) throw new Error('skip');
-      const mp3 = folder.getFilesByName('【音声】' + caseCompany_(String(projectName)) + '.mp3');
+      const mp3 = filesByName_(folder, '【音声】' + caseCompany_(String(projectName)) + '.mp3');
       while (mp3.hasNext()) mp3.next().setTrashed(true);
     } catch (e) { /* 音声が無くても再生成は進める */ }
 

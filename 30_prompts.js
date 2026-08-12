@@ -304,7 +304,7 @@ function scanBgNames_(cfg, opacity) {
   const names = [];
   const root = resolveNamedFolder_(cfg, 'BG');
   if (!root) return names;
-  const it = root.getFoldersByName(opacity);
+  const it = foldersByName_(root, opacity);
   if (!it.hasNext()) return names;
   const files = it.next().getFiles();
   while (files.hasNext()) {
@@ -438,7 +438,7 @@ function buildLpPrompt_(projectName, hearing) {
  */
 function createShiryoOrderFile_(projectName, hearing, assetLists, folder) {
   const name = '【指示】資料_' + caseCompany_(projectName) + '.txt';
-  const old = folder.getFilesByName(name);
+  const old = filesByName_(folder, name);
   while (old.hasNext()) old.next().setTrashed(true);
   return folder.createFile(name, buildManualPrompt_(hearing, assetLists, projectName), MimeType.PLAIN_TEXT);
 }
@@ -446,7 +446,7 @@ function createShiryoOrderFile_(projectName, hearing, assetLists, folder) {
 function createLpOrderFile_(projectName, hearing, folder) {
   const name = '【指示】LP_' + caseCompany_(projectName) + '.txt';
   // 再生成のときに二重にならないよう、同名の古い指示ファイルは先に捨てる
-  const old = folder.getFilesByName(name);
+  const old = filesByName_(folder, name);
   while (old.hasNext()) old.next().setTrashed(true);
   return folder.createFile(name, buildLpPrompt_(projectName, hearing), MimeType.PLAIN_TEXT);
 }
@@ -530,7 +530,7 @@ function processLpFixRequests_() {
 
       // いまのLP本文（Googleドキュメント）を読む
       let lpText = '';
-      const it = folder.getFilesByName('【LP】' + company);
+      const it = filesByName_(folder, '【LP】' + company);
       while (it.hasNext()) {
         const f = it.next();
         if (f.getMimeType() === MimeType.GOOGLE_DOCS) {
@@ -557,7 +557,7 @@ function processLpFixRequests_() {
       ].join('\n');
 
       const fname = '【指示】修正LP_' + company + '.txt';
-      const old = folder.getFilesByName(fname);
+      const old = filesByName_(folder, fname);
       while (old.hasNext()) old.next().setTrashed(true);
       folder.createFile(fname, body, MimeType.PLAIN_TEXT);
       st.getRange('B3').setValue('LP修正: 依頼を受け付けました（15分ほどで直ります）');
@@ -591,7 +591,7 @@ function convertLpTexts_() {
         if (!String(text).trim()) continue;
         const docName = name.replace(/\.(txt|md)$/i, '');
         let doc = null;
-        const it = f.getFilesByName(docName);
+        const it = filesByName_(f, docName);
         while (it.hasNext()) {
           const g = it.next();
           if (g.getMimeType() === MimeType.GOOGLE_DOCS) { doc = g; break; }
@@ -672,7 +672,7 @@ function processSlideFixRequests_() {
 
     // 見張りが書いた結果があればシートへ移して消す
     try {
-      const res = folder.getFilesByName('【結果】スライド_' + caseCompany_(projectName) + '.txt');
+      const res = filesByName_(folder, '【結果】スライド_' + caseCompany_(projectName) + '.txt');
       while (res.hasNext()) {
         const rf = res.next();
         st.getRange('B15').setValue(rf.getBlob().getDataAsString('UTF-8'));
@@ -699,7 +699,7 @@ function processSlideFixRequests_() {
         '【固定】ウェビナー自動生成/【出力】生成物/' + projectName + '/'
       ].join('\n');
       const fname = '【指示】スライド_' + caseCompany_(projectName) + '.txt';
-      const old = folder.getFilesByName(fname);
+      const old = filesByName_(folder, fname);
       while (old.hasNext()) old.next().setTrashed(true);
       folder.createFile(fname, body, MimeType.PLAIN_TEXT);
       st.getRange('B15').setValue('調べています（10分ほどお待ちください）');
@@ -765,7 +765,7 @@ function processTitleConfirm_() {
     // タイトル案ができていたら、その場所をB18に出す（PMが探さなくて済むように）
     try {
       if (!String(st.getRange('B18').getValue() || '').trim()) {
-        const tf = folder.getFilesByName('【タイトル案】' + company + '.txt');
+        const tf = filesByName_(folder, '【タイトル案】' + company + '.txt');
         if (tf.hasNext()) st.getRange('B18').setValue(tf.next().getUrl());
       }
     } catch (e) { /* リンクは補助。失敗しても確定処理は続ける */ }
@@ -774,7 +774,7 @@ function processTitleConfirm_() {
     st.getRange('B19').setValue(false);   // 先に外す。失敗しても同じ依頼を回し続けない
 
     try {
-      const held = folder.getFilesByName('【保留】サムネ指示_' + company + '.txt');
+      const held = filesByName_(folder, '【保留】サムネ指示_' + company + '.txt');
       if (!held.hasNext()) {
         st.getRange('B3').setValue('サムネイル: 保留中の指示が見つかりません（LPがまだできていないか、既に作成済み）');
         continue;

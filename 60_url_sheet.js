@@ -53,7 +53,7 @@ function backfillUrlSheets() {
   let made = 0, had = 0;
   while (it.hasNext()) {
     const folder = it.next();
-    if (folder.getFilesByName(URL_SHEET_PREFIX + folder.getName()).hasNext()) {
+    if (filesByName_(folder, URL_SHEET_PREFIX + folder.getName()).hasNext()) {
       Logger.log('・' + folder.getName() + '：すでにあります');
       had++;
       continue;
@@ -88,7 +88,7 @@ function createUrlSheet_(cfg, projectName) {
   const folder = caseFolder_(cfg, projectName);
   const name = URL_SHEET_PREFIX + caseCompany_(projectName);
 
-  const exist = folder.getFilesByName(name);
+  const exist = filesByName_(folder, name);
   if (exist.hasNext()) return exist.next();
 
   const ss = SpreadsheetApp.create(name);

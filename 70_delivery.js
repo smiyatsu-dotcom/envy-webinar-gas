@@ -47,13 +47,13 @@ function ensureDeliverCells_(st) {
 function deliveryFolderOf_(company) {
   let root;
   try { root = DriveApp.getFolderById(DELIVERY_ROOT_ID); } catch (e) { return null; }
-  const it = root.getFoldersByName(company);
+  const it = foldersByName_(root, company);
   return it.hasNext() ? it.next() : null;
 }
 
 /** コピー先の同名ファイルをゴミ箱へ移してから、1件コピーする。 */
 function deliverOne_(file, dest, newName) {
-  const old = dest.getFilesByName(newName);
+  const old = filesByName_(dest, newName);
   while (old.hasNext()) { try { old.next().setTrashed(true); } catch (e) { /* 個別の失敗は無視 */ } }
   file.makeCopy(newName, dest);
 }
@@ -105,7 +105,7 @@ function processDelivery_() {
     [['【スライド】' + String(projectName), 'スライド'],
      ['【音声】' + company + '.mp3', '音声'],
      ['【LP】' + company, 'LP']].forEach(function (pair) {
-      const it = src.getFilesByName(pair[0]);
+      const it = filesByName_(src, pair[0]);
       if (!it.hasNext()) { miss.push(pair[1]); return; }
       try { deliverOne_(it.next(), dest, pair[0]); done.push(pair[1]); }
       catch (e) { miss.push(pair[1] + '(' + e + ')'); }
@@ -114,10 +114,10 @@ function processDelivery_() {
     // ④ サムネイル … 【素材】投影資料 の会社フォルダから。名前を付け替えて入れる
     try {
       const aroot = DriveApp.getFolderById(cfg.ASSETS_FOLDER_ID);
-      const asub = aroot.getFoldersByName(String(projectName));
+      const asub = foldersByName_(aroot, String(projectName));
       if (!asub.hasNext()) { miss.push('サムネイル(素材フォルダなし)'); }
       else {
-        const tf = asub.next().getFilesByName('サムネイル.png');
+        const tf = filesByName_(asub.next(), 'サムネイル.png');
         if (!tf.hasNext()) miss.push('サムネイル');
         else { deliverOne_(tf.next(), dest, '【サムネイル】' + company + '.png'); done.push('サムネイル'); }
       }
