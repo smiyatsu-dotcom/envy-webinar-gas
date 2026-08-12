@@ -355,11 +355,11 @@ function iterByName_(direct, listAll, name) {
 }
 
 function foldersByName_(parent, name) {
-  return iterByName_(foldersByName_(parent, name), function () { return parent.getFolders(); }, name);
+  return iterByName_(parent.getFoldersByName(name), function () { return parent.getFolders(); }, name);
 }
 
 function filesByName_(parent, name) {
-  return iterByName_(filesByName_(parent, name), function () { return parent.getFiles(); }, name);
+  return iterByName_(parent.getFilesByName(name), function () { return parent.getFiles(); }, name);
 }
 
 /**
