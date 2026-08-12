@@ -35,7 +35,8 @@ function createKouseiScaffold_(projectName, hearingId, promptDocUrl) {
   ensureTitleConfirmCells_(st); // A17:A19
   ensureDeliverCells_(st);      // A21:A23
 
-  st.setColumnWidth(1, 240).setColumnWidth(2, 480);
+  // A列は説明文がそのまま読める幅に（240だと「↑の原因をAIに調べてもらう（10〜35分…」で切れて意味が変わる）
+  st.setColumnWidth(1, 500).setColumnWidth(2, 480);
 
   // ---- AI出力貼り付けタブ ----
   const pt = ss.insertSheet(PASTE_TAB);
