@@ -525,7 +525,8 @@ function processLpFixRequests_() {
 
     try {
       const company = caseCompany_(projectName);
-      const folder = caseFolder_(cfg, projectName);
+      const folder = caseFolderIfExists_(cfg, projectName);
+      if (!folder) { st.getRange('B3').setValue('LP修正: 案件フォルダが見つかりません'); continue; }
 
       // いまのLP本文（Googleドキュメント）を読む
       let lpText = '';
@@ -667,7 +668,7 @@ function processSlideFixRequests_() {
     ensureSlideFixCells_(st);
 
     let folder;
-    try { folder = caseFolder_(cfg, projectName); } catch (e) { continue; }
+    folder = caseFolderIfExists_(cfg, projectName); if (!folder) continue;
 
     // 見張りが書いた結果があればシートへ移して消す
     try {
@@ -758,7 +759,7 @@ function processTitleConfirm_() {
     ensureTitleConfirmCells_(st);
 
     let folder;
-    try { folder = caseFolder_(cfg, String(projectName)); } catch (e) { continue; }
+    folder = caseFolderIfExists_(cfg, String(projectName)); if (!folder) continue;
     const company = caseCompany_(String(projectName));
 
     // タイトル案ができていたら、その場所をB18に出す（PMが探さなくて済むように）

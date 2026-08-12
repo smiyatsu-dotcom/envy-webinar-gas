@@ -246,7 +246,8 @@ function processSlideRegen_() {
 
     // 古い音声を消す。残っていると見張りが「もうある」と判断して作り直さない
     try {
-      const folder = caseFolder_(cfg, String(projectName));
+      const folder = caseFolderIfExists_(cfg, String(projectName));
+      if (!folder) throw new Error('skip');
       const mp3 = folder.getFilesByName('【音声】' + caseCompany_(String(projectName)) + '.mp3');
       while (mp3.hasNext()) mp3.next().setTrashed(true);
     } catch (e) { /* 音声が無くても再生成は進める */ }

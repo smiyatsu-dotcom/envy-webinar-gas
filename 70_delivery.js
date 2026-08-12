@@ -93,7 +93,7 @@ function processDelivery_() {
     }
 
     let src;
-    try { src = caseFolder_(cfg, String(projectName)); } catch (e) {
+    try { src = caseFolderIfExists_(cfg, String(projectName)); if (!src) throw new Error('案件フォルダがありません'); } catch (e) {
       st.getRange('B23').setValue('案件フォルダを開けません: ' + String(e));
       continue;
     }

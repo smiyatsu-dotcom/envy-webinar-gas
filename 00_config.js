@@ -317,6 +317,18 @@ function caseCompany_(projectName) {
   const nm = String(projectName || '').replace(/[\s_＿\-]*ヒアリングシート\s*$/, '').trim();
   return nm || String(projectName || '');
 }
+/**
+ * 案件フォルダを「探すだけ」。無ければ null を返し、作らない。
+ * ★読み取り側は必ずこちらを使うこと。caseFolder_ は無いと作ってしまうので、
+ *   案件フォルダを消しても5分後に空フォルダが復活し続ける（2026-08-12 実測）。
+ *   管理シートに行が残っている限り永久に生えるので、消したつもりが消せない。
+ */
+function caseFolderIfExists_(cfg, projectName) {
+  const parent = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+  const it = parent.getFoldersByName(caseCompany_(projectName));
+  return it.hasNext() ? it.next() : null;
+}
+
 function caseFolder_(cfg, projectName) {
   const parent = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
   const nm = caseCompany_(projectName);

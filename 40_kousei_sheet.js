@@ -176,7 +176,7 @@ function importAiOutput_(ss, texts) {
 function readCaseJsonTexts_(cfg, projectName) {
   const want = { daihon: '【台本JSON】', kousei: '【構成テキストJSON】', design: '【デザインJSON】' };
   let folder;
-  try { folder = caseFolder_(cfg, projectName); } catch (e) { return null; }
+  folder = caseFolderIfExists_(cfg, projectName); if (!folder) return null;
   const found = {};
   let stamp = 0;
   const files = folder.getFiles();
