@@ -72,8 +72,9 @@ function processNewHearings_() {
       const ss = createKouseiScaffold_(pname, f.getId(), doc.getUrl()); // 40_kousei_sheet.gs
       // 4章で使うURLの入れ物。補助なので、失敗しても本体は止めない
       try { createUrlSheet_(cfg, pname); } catch (e) { Logger.log('URL管理シートの作成に失敗: ' + e); }  // 60_url_sheet.gs
-      // お客様に共有する納品物の置き場所。同じく補助なので止めない
-      try { deliveryFolder_(cfg, pname); } catch (e) { Logger.log('納品フォルダの作成に失敗: ' + e); }  // 70_delivery_folder.gs
+      // ★【納品】フォルダは作らない。宮津さんがヒアリングシートを作るときに
+      //   自分で用意するもので、GASが作ると二重になる（2026-08-12 指摘）。
+      //   そもそも中身をコピーする処理はどこにも無く、空フォルダが増えるだけだった。
       upsertRow_(cfg, f.getId(), pname, 'AI出力待ち', ss.getUrl(), '',
         '自動生成中です。LPは20分・サムネイルは30分・資料は50分ほど（手順書と同じ目安）。'
         + '1時間半たっても資料が揃わないときは宮津さんへ。手動で回すときのプロンプトDoc: ' + doc.getUrl());
