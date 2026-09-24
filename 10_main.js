@@ -43,6 +43,7 @@ function main() {
     processLpFixRequests_();
     processSlideFixRequests_();
     processDelivery_();
+    syncThumbnailToOutput_();
   } finally {
     lock.releaseLock();
   }

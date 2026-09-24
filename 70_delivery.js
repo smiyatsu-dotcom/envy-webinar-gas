@@ -59,6 +59,53 @@ function deliverOne_(file, dest, newName) {
 }
 
 /**
+ * サムネイル画像は【素材】投影資料にしかできず、これまで【出力】生成物には
+ * 3-2f（この下の processDelivery_、B22チェック）を押すまで一切入らなかった。
+ * だが 32a_LPとタイトル.md 自身が「3-2a〜3-2fで開くものは、ぜんぶ【出力】生成物
+ * の中にある」と説明しており、実際にはサムネイルだけそこに無い状態だった。
+ * 検品（B22）を待たずに済むよう、サムネイルができ次第ここへも複製しておく。
+ * ★【納品】へは入れない。あちらは検品後にお客様へ渡す場所なので、
+ *   processDelivery_ の役割（B22で明示的に押す）とは変えない。
+ * （2026-09-24・ホスピタソン社で、運営担当が【納品】【出力】どちらにも
+ *   見つからず「【素材】投影資料の中にあります」と個別に案内する事態になった）
+ */
+function syncThumbnailToOutput_() {
+  const cfg = getConfig_();
+  let aroot;
+  try { aroot = DriveApp.getFolderById(cfg.ASSETS_FOLDER_ID); } catch (e) { return; }
+  const rows = mgmtSheet_(cfg).getDataRange().getValues();
+
+  for (let i = 1; i < rows.length; i++) {
+    const projectName = rows[i][1];
+    if (!projectName) continue;
+
+    let thumb;
+    try {
+      const asub = foldersByName_(aroot, String(projectName));
+      if (!asub.hasNext()) continue;
+      const tf = filesByName_(asub.next(), 'サムネイル.png');
+      if (!tf.hasNext()) continue;
+      thumb = tf.next();
+    } catch (e) { continue; }
+
+    const dest = caseFolderIfExists_(cfg, String(projectName));
+    if (!dest) continue;
+
+    const newName = '【サムネイル】' + caseCompany_(String(projectName)) + '.png';
+    try {
+      const existing = filesByName_(dest, newName);
+      if (existing.hasNext()) {
+        const old = existing.next();
+        // ★素材のほうが新しければ（作り直された）差し替える。同じなら何もしない
+        if (old.getLastUpdated().getTime() >= thumb.getLastUpdated().getTime()) continue;
+        old.setTrashed(true);
+      }
+      thumb.makeCopy(newName, dest);
+    } catch (e) { /* 1件の失敗で他の案件を止めない */ }
+  }
+}
+
+/**
  * チェックが入った案件の納品物4点をコピーする。
  * スライド / 音声mp3 / サムネイル / LP。台本txtは入れない
  * （中身はスライドの話者ノートに入っており、顧客には要らないため）。
