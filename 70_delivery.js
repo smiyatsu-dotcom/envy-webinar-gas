@@ -109,16 +109,20 @@ function handEdited_(f, rec) {
  * いま納品フォルダにある、その種類の納品版（ゴミ箱の中のものは除く）。
  * 同じ名前のものに加えて、前回コピーしたファイル（名前が変えられていても）も拾う。
  */
-function deliveredNow_(dest, newName, rec) {
+function deliveredNow_(dest, names, rec) {
   const out = [];
   const seen = {};
-  const it = filesByName_(dest, newName);
-  while (it.hasNext()) {
-    const f = it.next();
-    if (f.isTrashed() || seen[f.getId()]) continue;
-    seen[f.getId()] = true;
-    out.push(f);
-  }
+  // ★名前は1つとは限らない。スライドは2026-09-25にウェビナータイトル名へ変えたので、
+  //   それより前の「【スライド】◯◯」の名前でも探す（古い版が横に残って2枚にならないように）
+  [].concat(names).forEach(function (name) {
+    const it = filesByName_(dest, name);
+    while (it.hasNext()) {
+      const f = it.next();
+      if (f.isTrashed() || seen[f.getId()]) continue;
+      seen[f.getId()] = true;
+      out.push(f);
+    }
+  });
   if (rec && rec.id && !seen[rec.id]) {
     try {
       const f = DriveApp.getFileById(rec.id);
@@ -132,9 +136,9 @@ function deliveredNow_(dest, newName, rec) {
  * 1件を納品フォルダへ入れる。前回この処理が入れたままのものはゴミ箱へ移して入れ直す。
  * ★手直しがあれば、何も消さず・何も入れずに { kept: [名前…] } を返す。
  */
-function deliverOne_(file, dest, newName, kind) {
+function deliverOne_(file, dest, newName, kind, oldNames) {
   const rec = deliveredRecord_(dest, kind);
-  const now = deliveredNow_(dest, newName, rec);
+  const now = deliveredNow_(dest, [newName].concat(oldNames || []), rec);
   const edited = now.filter(function (f) { return handEdited_(f, rec); });
   if (edited.length) return { kept: edited.map(function (f) { return f.getName(); }) };
 
@@ -237,8 +241,8 @@ function processDelivery_() {
     const miss = [];
     const kept = [];   // 手直しがあるので作り直さなかったもの（→ deliverOne_）
 
-    const put = function (f, newName, kind) {
-      const r = deliverOne_(f, dest, newName, kind);
+    const put = function (f, newName, kind, oldNames) {
+      const r = deliverOne_(f, dest, newName, kind, oldNames);
       if (r.kept) {
         kept.push(kind);
         Logger.log('★' + projectName + '｜' + kind + '：' + DELIVERY_KEEP_MESSAGE + '（' + r.kept.join('・') + '）');
@@ -248,12 +252,16 @@ function processDelivery_() {
     };
 
     // ① スライド / ② 音声 / ③ LP … 案件フォルダから
-    [['【スライド】' + String(projectName), 'スライド'],
+    // ★納品フォルダのスライドは、ウェビナータイトル名で入れる（2026-09-25・宮津さん。1-2・3-3の表と同じ）。
+    //   タイトルが読めないときだけ、これまでの「【スライド】◯◯」の名前で入れる
+    const 旧スライド名 = '【スライド】' + String(projectName);
+    const タイトル = webinarTitleOf_(src, company);
+    [[旧スライド名, 'スライド', タイトル || 旧スライド名, タイトル ? [旧スライド名] : []],
      ['【音声】' + company + '.mp3', '音声'],
      ['【LP】' + company, 'LP']].forEach(function (pair) {
       const it = filesByName_(src, pair[0]);
       if (!it.hasNext()) { miss.push(pair[1]); return; }
-      try { put(it.next(), pair[0], pair[1]); }
+      try { put(it.next(), pair[2] || pair[0], pair[1], pair[3]); }
       catch (e) { miss.push(pair[1] + '(' + e + ')'); }
     });
 
@@ -274,5 +282,25 @@ function processDelivery_() {
       (done.length ? '納品しました: ' + done.join('・') : '入れ直したものはありません') +
       (miss.length ? ' ／ 見つからなかったもの: ' + miss.join('・') : '') +
       ' → 【納品】/' + company + '/');
+  }
+}
+
+/**
+ * ウェビナータイトル（【LP】◯◯ の1行目＝サブタイトルと2行目＝メインタイトルをつなげたもの）。
+ * ★【LP】の書き方は 30_prompts.js の「1行目がサブタイトル、2行目がメインタイトル」に合わせている。
+ * 読めなければ ''（呼ぶ側が【スライド】◯◯ の名前に戻す）。
+ */
+function webinarTitleOf_(src, company) {
+  try {
+    const it = filesByName_(src, '【LP】' + company);
+    if (!it.hasNext()) return '';
+    const f = it.next();
+    if (f.getMimeType() !== MimeType.GOOGLE_DOCS) return '';
+    const lines = DocumentApp.openById(f.getId()).getBody().getText()
+      .split('\n').map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+    return lines.slice(0, 2).join('').replace(/[\\/]/g, '／').slice(0, 120);
+  } catch (e) {
+    Logger.log('ウェビナータイトルを読めません（【スライド】の名前で入れます）: ' + e);
+    return '';
   }
 }
