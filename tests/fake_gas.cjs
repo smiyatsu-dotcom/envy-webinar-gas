@@ -119,6 +119,7 @@ function makeEnv() {
     const d = {
       id, name, parent, path: (parent ? parent.path + '/' : '') + name, subs: [], files: [],
       getId: () => id, getName: () => name,
+      getParents: () => iter(parent ? [parent] : []),
       getFolders: () => iter(d.subs.slice()),
       getFiles: () => iter(d.files.filter(f => !f.trashed && f.parent === d)),
       getFoldersByName: (n) => iter(d.subs.filter(s => s.name === n)),

@@ -453,6 +453,19 @@ test('新の流れ: 止まったらテスト案件の知らせを 進み.json �
   assert.ok(知, JSON.stringify(進.知らせ));
   assert.strictEqual(知.テスト, true);
   assert.ok(/^動画撮影テスト社 … /.test(知.文));
+  // 【固定】ウェビナー自動生成/【知らせ待ち】/ に1通1ファイル（宛先＝テスト）
+  const 置いた = Object.values(env.files).filter(f => /【知らせ待ち】$/.test(f.parent.path) && /^【知らせ】動画撮影テスト社_\d{8}-\d{6}_\d+\.json$/.test(f.name));
+  assert.ok(置いた.length >= 1, Object.values(env.files).map(f => f.parent.path + '/' + f.name).join('\n'));
+  const o = JSON.parse(置いた[0].content);
+  assert.strictEqual(o.宛先, 'テスト'); assert.strictEqual(o.案件名, '動画撮影テスト社');
+  assert.ok(/止まりました/.test(o.文) && /\+09:00$/.test(o.置いた日時));
+});
+
+test('知らせの中身_: テスト案件は宛先「テスト」、それ以外は「社内」', () => {
+  const t = new Date('2026-09-26T01:15:00Z');
+  assert.strictEqual(G.知らせの中身_('過去A社', 'x', false, t).宛先, '社内');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(G.知らせの中身_('動画撮影テスト社', 'x', true, t))), { 宛先: 'テスト', 文: '動画撮影テスト社 … x', 案件名: '動画撮影テスト社', 置いた日時: '2026-09-26T10:15:00+09:00' });
+  assert.strictEqual(G.知らせのファイル名_('動画撮影テスト社', t, 3), '【知らせ】動画撮影テスト社_20260926-101500_3.json');
 });
 
 // ============================================================

@@ -17,8 +17,7 @@
  * 進みは 16_progress.js が 【状態】進み.json に書く（書くのはこのスクリプトだけ）。
  * ★操作パネルは別のGASプロジェクト（~/webinar-panel-gas）。このスクリプトの権限（appsscript.json）は変えない
  *   （権限を足すと再許可まで時間トリガーが止まり、進行中の案件の生成が止まるため・2026-09-26）。
- *   だからこのスクリプトは外へ送らない（UrlFetchApp を使わない）。知らせは 進み.json の「知らせ」に積み、
- *   操作パネルのプロジェクトが Google Chat の「テスト」スペースへ出す。
+ *   だからこのスクリプトは外へ送らない（UrlFetchApp を使わない）。知らせは【知らせ待ち】に置き、Mac が送る。
  */
 
 const 流れ_列 = 8;          // 管理シート H列
@@ -404,17 +403,40 @@ function テスト案件か_(案件名) {
 }
 
 /**
- * 新の流れの知らせを積む。★ここからは外へ送らない（このスクリプトは UrlFetchApp の権限を持たない）。
- * 積んだものは 進み.json の「知らせ」に出て、操作パネルのプロジェクト（~/webinar-panel-gas）が
- * テスト案件のものだけ Google Chat の「テスト」スペースへ出す。本番の案件のものは、今は Chat へ出さない
- * （構成シートB3・管理シートF列・操作パネルに出る）。
+ * 新の流れの知らせ。★ここからは外へ送らない（このスクリプトは外へ送る権限を持たず、Webhook も持たない）。
+ * 共有ドライブ【固定】ウェビナー自動生成/【知らせ待ち】/ に1通1ファイル置くだけ。送るのは Mac（形は設計書 10.）。
+ *   宛先: テスト案件 → 「テスト」（Google Chat「テスト_Peatix催促」）、それ以外 → 「社内」
+ * 同じものは 進み.json の「知らせ」にも残す（パネルで見られる）。
  */
 function 知らせを積む_(記, projectName, 文) {
   記.知らせ = 記.知らせ || [];
   記.知らせの番号 = (Number(記.知らせの番号) || 0) + 1;
-  記.知らせ.push({ ID: String(記.知らせの番号), 日時: 日時の文字_(new Date()), 文: caseCompany_(projectName) + ' … ' + 文, テスト: テスト案件か_(projectName) });
+  const いま = new Date();
+  const 会社 = caseCompany_(projectName);
+  const テスト = テスト案件か_(projectName);
+  記.知らせ.push({ ID: String(記.知らせの番号), 日時: 日時の文字_(いま), 文: 会社 + ' … ' + 文, テスト: テスト });
   if (記.知らせ.length > 知らせ_最大) 記.知らせ = 記.知らせ.slice(-知らせ_最大);
-  Logger.log('（知らせ）' + 文);
+  Logger.log('（知らせ）' + 会社 + ' … ' + 文);
+  try {
+    const 中身 = 知らせの中身_(会社, 文, テスト, いま);
+    知らせ待ちフォルダ_().createFile(知らせのファイル名_(会社, いま, 記.知らせの番号), JSON.stringify(中身), 'application/json');
+  } catch (e) { Logger.log('★【知らせ待ち】へ置けません: ' + e); }
+}
+
+/** 【知らせ待ち】の1通（★Driveを触らない・単体テストあり） */
+function 知らせの中身_(会社, 文, テスト, いま) {
+  return { 宛先: テスト ? 'テスト' : '社内', 文: 会社 + ' … ' + 文, 案件名: 会社, 置いた日時: 日時の文字_(いま) };
+}
+function 知らせのファイル名_(会社, いま, 番号) {
+  return '【知らせ】' + 会社 + '_' + 日時の文字_(いま).slice(0, 19).replace(/[-:]/g, '').replace('T', '-') + '_' + 番号 + '.json';
+}
+
+/** 【固定】ウェビナー自動生成/【知らせ待ち】（【出力】生成物の親の中。無ければ作る） */
+const 知らせ待ち_名前 = '【知らせ待ち】';
+function 知らせ待ちフォルダ_() {
+  const 固定 = DriveApp.getFolderById(getConfig_().OUTPUT_FOLDER_ID).getParents().next();
+  const it = foldersByName_(固定, 知らせ待ち_名前);
+  return it.hasNext() ? it.next() : 固定.createFolder(知らせ待ち_名前);
 }
 const 知らせ_最大 = 20;
 
