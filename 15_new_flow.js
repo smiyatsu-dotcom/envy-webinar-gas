@@ -266,7 +266,7 @@ function 新の流れを1件進める_(cfg, row, 一回) {
       記.承認 = { 済: true, 人: 人, 日時: 日時の文字_(new Date()) };
       st.getRange('B2').setValue(true);
       動きを足す_(記, '確認して承認しました（' + 人 + '）');
-      st.getRange('B3').setValue('承認しました（' + 人 + '）。操作パネルの「納品フォルダへ入れる」（またはB22）で納品できます');
+      st.getRange('B3').setValue('承認しました（' + 人 + '）。操作パネルの「納品フォルダへ入れる」で納品できます');
     } else if (!(記.承認 && 記.承認.済)) {
       動きを足す_(記, '承認できませんでした（' + 人 + '）：' + 進.いまここ.文);
     }
@@ -279,7 +279,7 @@ function 新の流れを1件進める_(cfg, row, 一回) {
       if (進.押せる.承認) {
         記.承認 = { 済: true, 人: '構成シートのB2', 日時: 日時の文字_(new Date()) };
         動きを足す_(記, '確認して承認しました（構成シートのB2）');
-        st.getRange('B3').setValue('承認しました。操作パネルの「納品フォルダへ入れる」（またはB22）で納品できます');
+        st.getRange('B3').setValue('承認しました。操作パネルの「納品フォルダへ入れる」で納品できます');
       } else {
         st.getRange('B2').setValue(false);
         st.getRange('B3').setValue('承認はまだできません。' + 進.いまここ.文 + '。全部できてから押してください');
@@ -430,7 +430,15 @@ function 新の流れの設定タブを整える_(st, folderId) {
     if (!url || !folderId) return;   // 操作パネルを公開して PANEL_URL を入れるまでは出さない（入れた次の回に出る）
     const 式 = パネルのリンクの式_(url, folderId);
     const c = st.getRange(パネルのリンクのセル);
-    if (String(c.getFormula()) !== 式) c.setFormula(式).setFontWeight('bold').setFontColor('#1a73e8');
+    if (String(c.getFormula()) !== 式) {
+      c.setFormula(式).setFontWeight('bold').setFontColor('#1a73e8');
+      st.setColumnWidth(3, 240);   // ★リンクの文字が切れないように（2026-09-26）
+    }
+    // ★新の流れでは、4行目から下の旧のボタン（LPを直す・スライドの不具合・タイトル・サムネ・納品のチェック）は使わない。
+    //   直しは PM相談室、進みと承認・納品は操作パネル。残すと迷うので隠す（消さない。2026-09-26）
+    if (st.getMaxRows() > 3 && !st.isRowHiddenByUser(4)) st.hideRows(4, st.getMaxRows() - 3);
+    const b3 = st.getRange('B3');
+    if (String(b3.getValue()).trim() === 'AI出力待ち') b3.setValue('資料を作っています。進みは右の「操作パネルを開く」で見られます');
   } catch (e) { /* 体裁の失敗で止めない */ }
 }
 
