@@ -430,10 +430,8 @@ function 新の流れの設定タブを整える_(st, folderId) {
     if (!url || !folderId) return;   // 操作パネルを公開して PANEL_URL を入れるまでは出さない（入れた次の回に出る）
     const 式 = パネルのリンクの式_(url, folderId);
     const c = st.getRange(パネルのリンクのセル);
-    if (String(c.getFormula()) !== 式) {
-      c.setFormula(式).setFontWeight('bold').setFontColor('#1a73e8');
-      st.setColumnWidth(3, 240);   // ★リンクの文字が切れないように（2026-09-26）
-    }
+    if (String(c.getFormula()) !== 式) c.setFormula(式).setFontWeight('bold').setFontColor('#1a73e8');
+    if (st.getColumnWidth(3) < 240) st.setColumnWidth(3, 240);   // ★リンクの文字が切れないように（2026-09-26）
     // ★新の流れでは、4行目から下の旧のボタン（LPを直す・スライドの不具合・タイトル・サムネ・納品のチェック）は使わない。
     //   直しは PM相談室、進みと承認・納品は操作パネル。残すと迷うので隠す（消さない。2026-09-26）
     if (st.getMaxRows() > 3 && !st.isRowHiddenByUser(4)) st.hideRows(4, st.getMaxRows() - 3);
