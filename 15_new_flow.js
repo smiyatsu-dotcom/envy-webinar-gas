@@ -207,10 +207,14 @@ function 新の流れを1件進める_(cfg, row, 一回) {
       一回.組んだ = true;
       const 音声も = String(o['対象'] || '') === '台本' || r.書いた.some(function (w) { return w.列 === 5; });
       const ok = スライドを組む_(cfg, row, 音声も);
-      記.セル済[id] = ok ? { 結果: '直した', 文: '' } : { 結果: '直せない', 文: 'セルは直しましたが、スライドを組めませんでした' };
-      動きを足す_(記, '直し（' + r.書いた.length + 'か所）を構成シートへ入れ、スライドを組み直しました' + (音声も ? '（台本の直しなので音声も作り直します）' : '（音声はそのまま）'));
+      if (ok === null) {
+        一回.あと回し = true;   // ★【直すセル】は残す（次の回の最初に、書いたセルを当て直して組む）
+      } else {
+        記.セル済[id] = ok ? { 結果: '直した', 文: '' } : { 結果: '直せない', 文: 'セルは直しましたが、スライドを組めませんでした' };
+        動きを足す_(記, '直し（' + r.書いた.length + 'か所）を構成シートへ入れ、スライドを組み直しました' + (音声も ? '（台本の直しなので音声も作り直します）' : '（音声はそのまま）'));
+      }
     }
-    済にする_(folder, x.実物, nfc_(x.名).replace('【直すセル】', '【済】直すセル_'));
+    if (!一回.あと回し) 済にする_(folder, x.実物, nfc_(x.名).replace('【直すセル】', '【済】直すセル_'));
     // 直しの記録にまだ無い（【指示】直し_ を見ないうちに終わった）ときも、記録に載せる
     if (!(記.直し || []).some(function (d) { return d.ID === id; })) {
       記.直し = (記.直し || []).concat([{ ID: id, 受付: String(o['日時'] || ''), 対象: String(o['対象'] || ''), 依頼: '', 状態: '作り直し中', 頼んだ人: '', 元: 'PM相談室' }]);
@@ -242,8 +246,9 @@ function 新の流れを1件進める_(cfg, row, 一回) {
   if (st && !一回.組んだ) {
     if (status === 'レビュー待ち' && 図) {
       一回.組んだ = true;
-      if (スライドを組む_(cfg, row, false)) { 記.組んだ図解 = 図の印; 動きを足す_(記, 'スライドを組みました（音声を作り始めます）'); }
-      else 動きを足す_(記, 'スライドを組めませんでした');
+      const ok = スライドを組む_(cfg, row, false);
+      if (ok) { 記.組んだ図解 = 図の印; 動きを足す_(記, 'スライドを組みました（音声を作り始めます）'); }
+      else if (ok === false) 動きを足す_(記, 'スライドを組めませんでした');
     } else if ((status === '完了' || status === 'エラー') && 記.取り込み済み && 図 && 記.組んだ図解 && 記.組んだ図解 !== 図の印) {
       一回.組んだ = true;
       if (スライドを組む_(cfg, row, false)) { 記.組んだ図解 = 図の印; 動きを足す_(記, '図解かサムネイルが差し替わったので、スライドだけ組み直しました（音声はそのまま）'); }
@@ -364,7 +369,21 @@ function 新の流れの承認済みか_(hearingId, st, 記) {
  * 旧の流れの B16（processSlideRegen_）は音声を必ず消すので、それとは分けてある。
  * generateSlides_ は台本txtを書き直すが、音声mp3があるかぎり見張りは音声を作り直さない。
  */
+// ★この実行が始まった時刻（ファイルが読まれた時＝実行の始まり）。スライドを組むのに5分ほどかかり、
+//   実行の上限（6分）を越えると途中で止まるので、始まってから時間がたっていたら次の回の最初に回す（2026-09-26）
+const 新_実行の始まり_ = Date.now();
+const 新_組む待ちのキー = '新_組む待ち';
+const 新_組む前の余裕_ms = 45 * 1000;
+// ★main が「先に組む」回として呼んだときは true（時間の確かめをしない。しないと、ずっと先送りになり旧の流れが回らない）
+var 新_先に組む回_ = false;
+
+/** @return true=組めた / false=失敗 / null=時間が足りないので次の回へ回した */
 function スライドを組む_(cfg, row, 音声も) {
+  if (!新_先に組む回_ && Date.now() - 新_実行の始まり_ > 新_組む前の余裕_ms) {
+    PropertiesService.getScriptProperties().setProperty(新_組む待ちのキー, String(row[1] || '1'));
+    Logger.log('スライドを組むのは次の回の最初に回します（この回は時間が足りない）: ' + row[1]);
+    return null;
+  }
   const hearingId = String(row[0]), projectName = String(row[1]), kouseiUrl = String(row[3]);
   const kouseiId = idFromUrl_(kouseiUrl);
   if (音声も) {
@@ -379,7 +398,7 @@ function スライドを組む_(cfg, row, 音声も) {
   upsertRow_(cfg, hearingId, projectName, 'スライド生成中', kouseiUrl, '', 音声も ? '組み直し中（音声も作り直す）' : '組み直し中（音声は残す）');
   setKouseiStatus_(kouseiId, 'スライドを組んでいます');
   try {
-    const result = generateSlides_(kouseiId);   // 50_slides.js
+    const result = generateSlides_(kouseiId, { 安全: true });   // 50_slides.js（組み終わってから旧と入れ替える）
     upsertRow_(cfg, hearingId, projectName, '完了', kouseiUrl, result.pres.getUrl(), result.warnings.join(' / '));
     setKouseiStatus_(kouseiId, 'スライドができました: ' + result.pres.getUrl());
     return true;

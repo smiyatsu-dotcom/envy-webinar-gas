@@ -11,17 +11,27 @@
  *     重ねて等価な見た目を再現する。行別に「ファイル名@25」で上書き可。
  */
 
-function generateSlides_(kouseiSheetId) {
+function generateSlides_(kouseiSheetId, opt) {
   const cfg = getConfig_();
   const data = readKouseiSheet_(kouseiSheetId); // rows + ryoukin（単一/松竹梅)
   const warnings = [];
+  // ★opt.安全（新しい流れだけ・2026-09-26）: 「【作成中】」の名前で組み、組み終わってから名前を戻して旧をゴミ箱へ。
+  //   実行時間（6分）の上限で途中で止まると、旧を捨てたあとにテンプレのまま（別会社の見本）のデッキが残っていた。
+  //   旧の流れ（opt なし）は今までどおり（先に旧を捨ててから組む）
+  const 安全 = !!(opt && opt.安全);
 
   // 1. サンプルデッキ（108枚）を複製（再生成時、同名の旧スライドはゴミ箱へ移す）
   const outFolder = caseFolder_(cfg, data.name);
   const slideName = '【スライド】' + data.name;
-  const trashed = trashSameName_(outFolder, slideName);
-  if (trashed) warnings.push('旧スライド' + trashed + '件をゴミ箱へ移しました（30日以内なら復元可）');
-  const copyFile = DriveApp.getFileById(cfg.TEMPLATE_SLIDE_ID).makeCopy(slideName, outFolder);
+  const 作成中の名前 = '【作成中】' + slideName;
+  if (安全) {
+    const 残り = trashSameName_(outFolder, 作成中の名前);   // 前に途中で止まったもの
+    if (残り) warnings.push('途中で止まっていた作成中のスライド' + 残り + '件をゴミ箱へ移しました');
+  } else {
+    const trashed = trashSameName_(outFolder, slideName);
+    if (trashed) warnings.push('旧スライド' + trashed + '件をゴミ箱へ移しました（30日以内なら復元可）');
+  }
+  const copyFile = DriveApp.getFileById(cfg.TEMPLATE_SLIDE_ID).makeCopy(安全 ? 作成中の名前 : slideName, outFolder);
   const pres = SlidesApp.openById(copyFile.getId());
   const slides = pres.getSlides();
   // ★Q&A（No.104.5）はテンプレに入れていない（複製して作る）ので、テンプレは108枚のまま
@@ -113,6 +123,11 @@ function generateSlides_(kouseiSheetId) {
   } catch (e) { warnings.push('料金バリアント削除失敗: ' + e); }
 
   pres.saveAndClose();
+  if (安全) {
+    const trashed = trashSameName_(outFolder, slideName);
+    if (trashed) warnings.push('旧スライド' + trashed + '件をゴミ箱へ移しました（30日以内なら復元可）');
+    copyFile.setName(slideName);
+  }
   if (warnings.length > 0) Logger.log('スライド生成警告:\n' + warnings.join('\n'));
   return { pres: SlidesApp.openById(copyFile.getId()), warnings: warnings };
 }

@@ -36,6 +36,16 @@ function main() {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(1000)) return;
   try {
+    // ★新しい流れのスライドが「次の回の最初に組む」待ちなら、この回はそれだけをする（2026-09-26）。
+    //   組むのに5分ほどかかり、旧の流れの処理のあとでは実行の上限（6分）を越えて途中で止まるため。
+    //   旧の流れの処理は次の回（5分後）に回るだけで、中身は変えない
+    const P = PropertiesService.getScriptProperties();
+    if (P.getProperty(新_組む待ちのキー)) {
+      P.deleteProperty(新_組む待ちのキー);
+      新_先に組む回_ = true;
+      try { processNewFlow_(); } catch (e) { Logger.log('★processNewFlow_（先に組む）: ' + e); }
+      return;
+    }
     processNewHearings_();
     processImports_();
     processApprovals_();
