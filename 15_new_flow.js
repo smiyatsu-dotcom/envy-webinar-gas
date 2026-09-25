@@ -146,6 +146,10 @@ function processNewFlow_() {
     const hearingId = String(rows[i][0] || '');
     const projectName = String(rows[i][1] || '');
     if (!hearingId || !projectName) continue;
+    if (一回.見張り === undefined) {   // Mac の見張りの心拍。★新の流れの案件があるときだけ、1回の実行で1度だけ読む
+      一回.見張り = 見張りの様子_(見張りの心拍を読む_(cfg), new Date());
+      見張りが止まったら知らせる_(一回.見張り);
+    }
     try { 新の流れを1件進める_(cfg, rows[i], 一回); }
     catch (e) { Logger.log('★新しい流れの処理で失敗: ' + projectName + ' / ' + e); }
   }
@@ -171,6 +175,7 @@ function 新の流れを1件進める_(cfg, row, 一回) {
   if (st) 新の流れの設定タブを整える_(st, folder.getId());
 
   let 観 = 観測する_(cfg, row, folder);
+  観.見張り = 一回.見張り || null;
 
   // (1) タイトルは1位を自動採用 → サムネイルへ（旧の流れの B19 を人が押す代わり）
   // ★LPの仕事が終わってから（【指示】LP_ が消え、【作業中】LP も無い）。見張りはLPの仕事の終わりに
@@ -187,9 +192,34 @@ function 新の流れを1件進める_(cfg, row, 一回) {
   // (2) 取り込みは processImports_ が新の流れの文で行う（10_main.js）。取り込めたら覚えておく
   if (status === 'レビュー待ち' || status === 'スライド生成中' || status === '完了') 記.取り込み済み = true;
 
+  // (2b) Mac の【直すセル】（スライド・台本の直し）: 構成シートへ書いて、スライドだけ組み直す（台本なら音声も）
+  if (st && !一回.組んだ && 観.直すセル.length && 記.取り込み済み && (status === '完了' || status === 'エラー')) {
+    const x = 観.直すセル[0];   // 1回の実行で1件（組み直しは1回まで）
+    const o = x.中身 || {};
+    const id = String(o['ID']);
+    const r = 直すセルを書く_(ss, o['直す']);
+    記.セル済 = 記.セル済 || {};
+    if (r.違う.length) {
+      記.セル済[id] = { 結果: '直せない', 文: r.違う.join('・') };
+      動きを足す_(記, String(o['対象'] || '') + 'の直しを入れられませんでした：' + r.違う.join('・'));
+      知らせを積む_(記, projectName, '直し（' + id + '）を構成シートへ入れられませんでした。' + r.違う.join('・'));
+    } else {
+      一回.組んだ = true;
+      const 音声も = String(o['対象'] || '') === '台本' || r.書いた.some(function (w) { return w.列 === 5; });
+      const ok = スライドを組む_(cfg, row, 音声も);
+      記.セル済[id] = ok ? { 結果: '直した', 文: '' } : { 結果: '直せない', 文: 'セルは直しましたが、スライドを組めませんでした' };
+      動きを足す_(記, '直し（' + r.書いた.length + 'か所）を構成シートへ入れ、スライドを組み直しました' + (音声も ? '（台本の直しなので音声も作り直します）' : '（音声はそのまま）'));
+    }
+    済にする_(folder, x.実物, nfc_(x.名).replace('【直すセル】', '【済】直すセル_'));
+    // 直しの記録にまだ無い（【指示】直し_ を見ないうちに終わった）ときも、記録に載せる
+    if (!(記.直し || []).some(function (d) { return d.ID === id; })) {
+      記.直し = (記.直し || []).concat([{ ID: id, 受付: String(o['日時'] || ''), 対象: String(o['対象'] || ''), 依頼: '', 状態: '作り直し中', 頼んだ人: '', 元: 'PM相談室' }]);
+    }
+  }
+
   // (3) 直しの受付・直し終わりを記録へ
   const 前の直し = JSON.stringify(記.直し || []);
-  記.直し = 直しをまとめる_(記.直し, 観.直し指示, 観.直し済, 日時の文字_(new Date()));
+  記.直し = 直しをまとめる_(記.直し, 観.直し指示, 観.直し済, 日時の文字_(new Date()), 記.セル済);
   const 新しく受けた = 直しの差分_(JSON.parse(前の直し), 記.直し);
   新しく受けた.受けた.forEach(function (d) {
     動きを足す_(記, d.対象 + 'の直し（' + (d.元 || 'PM相談室') + '：' + String(d.依頼 || '').slice(0, 30) + '）');
@@ -199,11 +229,10 @@ function 新の流れを1件進める_(cfg, row, 一回) {
       動きを足す_(記, '直しが入ったので、承認を外しました');
     }
   });
-  const 組み直す直し = [];
   新しく受けた.終わった.forEach(function (d) {
     動きを足す_(記, d.対象 + 'の直し：' + (d.結果 === '直した' ? '直しました' : '直せませんでした（' + (d.文 || '') + '）'));
-    if (d.結果 === '直した' && (d.対象 === 'スライド' || d.対象 === '台本' || d.対象 === '図解')) 組み直す直し.push(d);
   });
+  // ★スライド・台本の直しは (2b) の【直すセル】で、図解の直しは【図解済み】の日時が変わったのを見て (4) で組み直す
 
   // (4) スライド: 取り込みと図解がそろったら組む／図解の差し替え・直しなら音声を残して組み直す
   const 図 = 観.ファイル.図解済み;
@@ -216,13 +245,6 @@ function 新の流れを1件進める_(cfg, row, 一回) {
     } else if ((status === '完了' || status === 'エラー') && 記.取り込み済み && 図 && 記.組んだ図解 && 記.組んだ図解 !== 図の印) {
       一回.組んだ = true;
       if (スライドを組む_(cfg, row, false)) { 記.組んだ図解 = 図の印; 動きを足す_(記, '図解が差し替わったので、スライドだけ組み直しました（音声はそのまま）'); }
-    } else if ((status === '完了' || status === 'エラー') && 記.取り込み済み && 組み直す直し.length) {
-      一回.組んだ = true;
-      const 音声も = 組み直す直し.some(function (d) { return d.対象 === '台本'; });
-      if (スライドを組む_(cfg, row, 音声も)) {
-        if (図) 記.組んだ図解 = 図の印;
-        動きを足す_(記, '直しをスライドに入れました' + (音声も ? '（台本の直しなので音声も作り直します）' : '（音声はそのまま）'));
-      }
     }
   }
   if (一回.組んだ) {   // 状態が変わったので、管理シートを読み直して見直す
@@ -231,6 +253,7 @@ function 新の流れを1件進める_(cfg, row, 一回) {
       const 新 = mgmtSheet_(cfg).getRange(reg[hearingId], 1, 1, 流れ_列).getValues()[0];
       row = 新; status = String(新[2] || '');
       観 = 観測する_(cfg, row, folder);
+      観.見張り = 一回.見張り || null;
     }
   }
 
@@ -290,6 +313,31 @@ function 新の流れを1件進める_(cfg, row, 一回) {
   進.動き = (記.動き || []).slice(-動き_最大);
   進み_記録を書く_(hearingId, 記);
   進みを書く_(folder, 進);
+}
+
+/** 【直すセル】を構成シートの4タブへ書く。「前」と今のセルが1つでも違えば何も書かない */
+function 直すセルを書く_(ss, 直す) {
+  const タブたち = {};
+  [TABS.INTRO, TABS.PROBLEM, TABS.STORY, TABS.OFFER].forEach(function (t) {
+    const sh = ss.getSheetByName(t);
+    if (sh) タブたち[t] = sh.getDataRange().getValues();
+  });
+  const r = 直すセルを当てる_(タブたち, 直す);
+  r.書く.forEach(function (w) { ss.getSheetByName(w.タブ).getRange(w.行, w.列).setValue(w.後); });
+  return { 書いた: r.書く, 違う: r.違う };
+}
+
+/** Mac の見張りが止まったら、止まった1回につき1通だけ社内（宮津さん）へ置く */
+function 見張りが止まったら知らせる_(見張り) {
+  if (!見張り || !見張り.止まった) return;
+  const P = PropertiesService.getScriptProperties();
+  if (P.getProperty('MIHARI_TOMATTA') === 見張り.最後) return;
+  P.setProperty('MIHARI_TOMATTA', 見張り.最後);
+  try {
+    const いま = new Date();
+    const o = { 宛先: '社内', 文: '宮津さんへ：Mac の資料生成の見張りが ' + 見張り.分 + '分止まっています（最後に動いたのは ' + 見張り.最後 + '）。新しい流れの案件の生成が進みません', 案件名: '', 置いた日時: 日時の文字_(いま) };
+    知らせ待ちフォルダ_().createFile('【知らせ】見張り_' + 日時の文字_(いま).slice(0, 19).replace(/[-:]/g, '').replace('T', '-') + '.json', JSON.stringify(o), 'application/json');
+  } catch (e) { Logger.log('★見張りの止まりを知らせられません: ' + e); }
 }
 
 /** パネルから来たファイルを「済」の名前に変える（同じ名前の古い【済】はゴミ箱へ） */

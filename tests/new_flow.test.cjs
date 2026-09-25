@@ -193,7 +193,7 @@ test('進み: 直しを受けたら該当する行が「作り直し中」、承
 });
 
 test('直しをまとめる_・直しの差分_: 受付 → 済（ボットが【済】を消しても記録に残る）', () => {
-  const 一 = G.直しをまとめる_([], [{ ID: 'a1', 対象: 'スライド', 依頼: 'x' }], [], 'T1');
+  const 一 = G.直しをまとめる_([], [{ ID: 'a1', 対象: 'LP', 依頼: 'x' }], [], 'T1');
   let 差 = G.直しの差分_([], 一);
   assert.strictEqual(差.受けた.length, 1); assert.strictEqual(差.終わった.length, 0);
   const 二 = G.直しをまとめる_(一, [], [{ ID: 'a1', 結果: '直した', 文: 'ok', 後: 'u2' }], 'T2');
@@ -240,7 +240,8 @@ function 世界(withNew) {
   const mg = env.makeSpreadsheet('MGMTxxxxxxxxxxxxxxxxxxxxxxxxxxxx', ['管理']).sheets['管理'];
   mg.getRange(1, 1, 1, 7).setValues([['ヒアリングファイルID', '案件名', 'ステータス', '構成シートURL', 'スライドURL', 'メッセージ', '更新日時']]);
   const 構成 = (n, name) => {
-    const ss = env.makeSpreadsheet(K(n), ['設定', 'AI出力貼り付け']);
+    const ss = env.makeSpreadsheet(K(n), n === 9 ? ['設定', 'AI出力貼り付け', 'オファー'] : ['設定', 'AI出力貼り付け']);
+    if (n === 9) ss.sheets['オファー'].getRange(1, 1, 3, 5).setValues([['No.', '基本構成', '小分類', '構成テキスト', '台本'], [40, 'a', 'b', '前の構成', '前の台本'], [41, 'a', 'b', 'x', 'y']]);
     ss.sheets['設定'].getRange('B1').setValue(name);
     return ss;
   };
@@ -423,9 +424,66 @@ test('新の流れ: 全部できたあとパネルの【承認】→ 承認・B2
   N.files.find(f => f.name === '【指示】直し_動画撮影テスト社_a1.json').trashed = true;
   N.addFile('【済】直し_動画撮影テスト社_a1.json', JSON.stringify({ ID: 'a1', 結果: '直した', 前: 'u1', 後: 'u2', 文: '直しました' }));
   run();
+  // 【済】だけでは組み直さない（【直すセル】を書くまで「作り直し中」）
+  assert.ok(!env.log.some(e => e[0] === 'generateSlides' && e[1] === K(9)));
+  assert.strictEqual(記().直し[0].状態, '作り直し中');
+  N.addFile('【直すセル】動画撮影テスト社_a1.json', JSON.stringify({ ID: 'a1', 案件名: '動画撮影テスト社', 対象: 'スライド', 直す: [{ no: 40, 欄: '構成テキスト', 列: 'D', 前: '前の構成', 後: '後の構成' }], 日時: '…' }));
+  run();
+  const of = env.spreadsheets[K(9)].sheets['オファー'];
+  assert.strictEqual(of.getRange('D2').getValue(), '後の構成');
+  assert.strictEqual(of.getRange('E2').getValue(), '前の台本');
   assert.ok(env.log.some(e => e[0] === 'generateSlides' && e[1] === K(9)));
   assert.ok(!env.log.some(e => e[0] === 'trash' && /【音声】動画撮影テスト社/.test(e[1])), 'スライドの直しで音声を消した');
+  assert.ok(env.log.some(e => e[0] === 'rename' && e[2] === '【済】直すセル_動画撮影テスト社_a1.json'));
   assert.strictEqual(記().直し[0].状態, '済');
+  // 台本の直しは音声も作り直す（音声をゴミ箱へ）
+  N.addFile('【直すセル】動画撮影テスト社_b2.json', JSON.stringify({ ID: 'b2', 対象: '台本', 直す: [{ no: 40, 欄: '台本', 列: 'E', 前: '前の台本', 後: '後の台本' }] }));
+  run();
+  assert.strictEqual(of.getRange('E2').getValue(), '後の台本');
+  assert.ok(env.log.some(e => e[0] === 'trash' && /【音声】動画撮影テスト社/.test(e[1])));
+  assert.strictEqual(記().直し.find(d => d.ID === 'b2').状態, '済');
+  // 「前」が今のセルと違えば書かずに知らせ、直しは止まった
+  N.addFile('【直すセル】動画撮影テスト社_c3.json', JSON.stringify({ ID: 'c3', 対象: 'スライド', 直す: [{ no: 41, 列: 'D', 前: '違う文', 後: 'z' }] }));
+  run();
+  assert.strictEqual(of.getRange('D3').getValue(), 'x');
+  assert.ok(!env.log.some(e => e[0] === 'generateSlides'));
+  assert.strictEqual(記().直し.find(d => d.ID === 'c3').状態, '止まった');
+  assert.ok(Object.values(env.files).some(f => /【知らせ待ち】$/.test(f.parent.path) && /直し（c3）/.test(f.content)));
+});
+
+test('直すセルを当てる_: No・列で当て、前が違えば1つも書かない。No.96の松竹梅の2行目も見る', () => {
+  const タブ = { オファー: [['No.'], [40, '', '', '構40', '台40'], [96, '', '', '（斜線）', '（斜線）'], ['', '', '', '松の構成', '松の台本']] };
+  let r = G.直すセルを当てる_(タブ, [{ no: 40, 列: 'D', 前: '構40', 後: '新' }, { no: 96, 列: 'E', 前: '松の台本', 後: '新松' }]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(r.書く)), [{ タブ: 'オファー', 行: 2, 列: 4, 後: '新' }, { タブ: 'オファー', 行: 4, 列: 5, 後: '新松' }]);
+  r = G.直すセルを当てる_(タブ, [{ no: 40, 列: 'D', 前: '構40', 後: '新' }, { no: 40, 列: 'E', 前: 'ちがう', 後: 'x' }]);
+  assert.strictEqual(r.書く.length, 0); assert.ok(/手で直されたかも/.test(r.違う[0]));
+  r = G.直すセルを当てる_(タブ, [{ no: 77, 列: 'D', 前: '', 後: 'x' }]);
+  assert.ok(/ありません/.test(r.違う[0]));
+});
+
+test('見張りの様子_・進み: Macの心拍が20分より古いと「生成の担当が止まっています」。心拍が1つも無ければ何も言わない', () => {
+  assert.strictEqual(G.見張りの様子_([], いま).止まった, false);
+  const 古 = G.見張りの様子_([{ 最後に回った時刻: '2026-09-26T10:00:00+09:00' }, { 最後に回った時刻: '2026-09-26T09:00:00+09:00' }], いま);
+  assert.strictEqual(古.止まった, true); assert.strictEqual(古.分, 30);
+  assert.strictEqual(G.見張りの様子_([{ 最後に回った時刻: '2026-09-26T10:25:00+09:00' }], いま).止まった, false);
+  const 観 = 観の元({ ファイル: { 指示LP: true } }); 観.見張り = 古;
+  const 進 = G.進みを計算_(観, G.進み_記録の既定_(), いま);
+  assert.strictEqual(進.いまここ.文, '生成の担当が止まっています（宮津さんへ知らせ済み）');
+  assert.strictEqual(進.見張り.止まった, true);
+  const 観2 = 全部できた観(); 観2.見張り = 古;   // 全部できたあとは、見張りが止まっていても言わない
+  assert.strictEqual(G.進みを計算_(観2, G.進み_記録の既定_(), いま).いまここ.文, '全部できました');
+});
+
+test('新の流れ: 心拍の古いファイルがあれば 進み.json に出し、宮津さんへの知らせを1通だけ置く', () => {
+  const env = 世界(true);
+  const 固定 = Object.values(env.folders).find(d => d.name === '【固定】ウェビナー自動生成');
+  固定.addFile('【心拍】資料の見張り_mac1.json', JSON.stringify({ PC: 'mac1', 最後に回った時刻: '2020-01-01T00:00:00+09:00' }), 'application/json');
+  for (let k = 0; k < 2; k++) { const ctx = loadGas(env); 差し替え(ctx, env); ctx.main(); }
+  const 進 = JSON.parse(Object.values(env.files).find(f => f.name === '【状態】進み.json' && /動画撮影テスト社/.test(f.parent.path)).content);
+  assert.strictEqual(進.見張り.止まった, true);
+  const 通 = Object.values(env.files).filter(f => /^【知らせ】見張り_/.test(f.name));
+  assert.strictEqual(通.length, 1);
+  assert.strictEqual(JSON.parse(通[0].content).宛先, '社内');
 });
 
 test('新の流れ: 図解だけ差し替えたら（【図解済み】を書き直し）、音声を残してスライドだけ組み直す', () => {
