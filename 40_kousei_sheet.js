@@ -61,7 +61,7 @@ function createKouseiScaffold_(projectName, hearingId, promptDocUrl) {
   return ss;
 }
 
-/** 4タブへ全106行を書き込む */
+/** 4タブへ全106行（＋Q&AのNo.104.5）を書き込む */
 function writeContentTabs_(ss, kouseiMap, daihonMap, designMap, taikeiMap) {
   designMap = designMap || {};
   taikeiMap = taikeiMap || {};
@@ -145,6 +145,7 @@ function importAiOutput_(ss, texts) {
   const daihonMap = validateRows_(parseJsonArray_(daihonText), gen.partA.concat(gen.partB), 'daihon', warnings);
   const kouseiRows = parseJsonArray_(kouseiText);
   const kouseiMap = validateRows_(kouseiRows, kouseiGenRows_(), 'kousei_text', warnings);
+  dropQaIfHearingEmpty_(ss, daihonMap, kouseiMap, warnings);
   const taikeiMap = {};
   kouseiRows.forEach(function (r) {
     const no = Number(r.no);
@@ -167,6 +168,27 @@ function importAiOutput_(ss, texts) {
 
   writeContentTabs_(ss, kouseiMap, daihonMap, designMap, taikeiMap);
   return warnings;
+}
+
+/**
+ * ★ヒアリングシートにQ&Aの記入が無いのに、AIが No.104.5 を書いてきたら捨てる。
+ *   「記入が無ければ何も入らない」を、AIの出来に頼らずここで守る（作り話をお客様の前に出さない）。
+ *   ヒアリングシートが読めないときは、AIの出力をそのまま使い、警告だけ残す。
+ */
+function dropQaIfHearingEmpty_(ss, daihonMap, kouseiMap, warnings) {
+  const has = String(daihonMap[QA_NO] || '').trim() !== '' || String(kouseiMap[QA_NO] || '').trim() !== '';
+  if (!has) return;
+  try {
+    const st = ss.getSheetByName(TABS.SETTINGS);
+    const hid = st ? String(st.getRange('B4').getValue() || '').trim() : '';
+    if (!hid) { warnings.push('No.' + QA_NO + '（Q&A）: ヒアリングシートのIDが設定タブB4に無く、記入の有無を確かめられませんでした'); return; }
+    if (readHearingQa_(hid).length > 0) return;
+    daihonMap[QA_NO] = '';
+    kouseiMap[QA_NO] = '';
+    warnings.push('No.' + QA_NO + '（Q&A）: ヒアリングシートにQ&Aの記入が無いので、AIの出力を捨てました');
+  } catch (e) {
+    warnings.push('No.' + QA_NO + '（Q&A）: ヒアリングシートを読めず、記入の有無を確かめられませんでした（' + e + '）');
+  }
 }
 
 /**

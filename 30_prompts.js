@@ -30,11 +30,76 @@ function readHearing_(spreadsheetId) {
     if (!hit) throw new Error('ヒアリングシートにタブが見つかりません: ' + name);
     return hit;
   }
+  const offerTab = findTab(HEARING_TABS.OFFER);
   return {
-    offer: serializeSheet_(findTab(HEARING_TABS.OFFER)),
+    offer: serializeSheet_(offerTab),
     problem: serializeSheet_(findTab(HEARING_TABS.PROBLEM)),
-    story: serializeSheet_(findTab(HEARING_TABS.STORY))
+    story: serializeSheet_(findTab(HEARING_TABS.STORY)),
+    qa: qaPairsFromValues_(offerTab.getDataRange().getValues())  // ⒌ よくある質問（→ QA_NO）
   };
+}
+
+/** Q&Aの組だけを読む（取り込み時の確かめ用。→ importAiOutput_） */
+function readHearingQa_(spreadsheetId) {
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  const hit = ss.getSheets().filter(function (s) { return s.getName().trim() === HEARING_TABS.OFFER.trim(); })[0];
+  if (!hit) throw new Error('ヒアリングシートにタブが見つかりません: ' + HEARING_TABS.OFFER);
+  return qaPairsFromValues_(hit.getDataRange().getValues());
+}
+
+/**
+ * 【オファー記入用】の「⒌ よくある質問（Q&A）」から、記入がある組だけを取り出す。
+ * 原本（2026-09-25 確認）: B60「⒌ よくある質問（Q&A）」、その下に
+ *   C61「よくある質問：」D61=質問 / C62「記入欄：」D62=答え …… の組が3つ（61〜66行）。
+ * ★行番号では探さない（案件ごとに行が足されてずれるため）。見出しの文字から下を読む。
+ * ★質問と答えの両方が書いてある組だけを使う。片方だけの組は使わない（作って埋めないため）。
+ * @return {Array<{q:string,a:string}>} 最大3組。記入が無ければ []
+ */
+function qaPairsFromValues_(values) {
+  const cellsOf = function (row) {
+    return (row || []).map(function (c) { return String(c == null ? '' : c).trim(); });
+  };
+  const isLabel = function (c, label) { return c.replace(/[:：\s]/g, '') === label; };
+  let start = -1;
+  for (let i = 0; i < values.length; i++) {
+    if (cellsOf(values[i]).some(function (c) { return /よくある質問[（(]\s*Q\s*[&＆]\s*A\s*[）)]/i.test(c); })) { start = i + 1; break; }
+  }
+  if (start < 0) return [];
+  const pairs = [];
+  let q = null;
+  for (let i = start; i < values.length && pairs.length < 3; i++) {
+    const cells = cellsOf(values[i]);
+    const nonEmpty = cells.filter(function (c) { return c !== ''; });
+    if (nonEmpty.length === 0) continue;
+    // 次の大見出し（「⒍ 」「6.」など）に来たら終わり
+    if (/^([⒈-⒛]|[0-9０-９]+[\.．])\s*/.test(nonEmpty[0]) && !isLabel(nonEmpty[0], 'よくある質問')) break;
+    const qi = cells.findIndex(function (c) { return isLabel(c, 'よくある質問'); });
+    const ai = cells.findIndex(function (c) { return isLabel(c, '記入欄'); });
+    if (qi !== -1) {
+      q = cells.slice(qi + 1).filter(function (c) { return c !== ''; }).join('\n');
+    } else if (ai !== -1 && q !== null) {
+      const a = cells.slice(ai + 1).filter(function (c) { return c !== ''; }).join('\n');
+      if (q && a) pairs.push({ q: q, a: a });
+      q = null;
+    }
+  }
+  return pairs;
+}
+
+/** プロンプトに入れる「Q&A」の指示（シートから機械的に取り出した組をそのまま渡す） */
+function qaPromptBlock_(qa) {
+  const list = qa || [];
+  if (list.length === 0) {
+    return [
+      '# No.' + QA_NO + '（よくある質問）について',
+      '今回のヒアリングシートには「⒌ よくある質問（Q&A）」の記入がありません。',
+      'No.' + QA_NO + ' は台本・構成テキストとも空文字 "" を出力すること（スライドも台本も入らない）。Q&Aを作らない。'
+    ].join('\n');
+  }
+  return [
+    '# No.' + QA_NO + '（よくある質問）に使ってよいQ&A（ヒアリング「⒌ よくある質問（Q&A）」の記入がある組だけ。これ以外は使わない）',
+    list.map(function (p, i) { return 'Q' + (i + 1) + '. ' + p.q + '\nA' + (i + 1) + '. ' + p.a; }).join('\n\n')
+  ].join('\n');
 }
 
 // ============================================================
@@ -50,7 +115,7 @@ function rolePrompt_() {
     '- イントロ（No.1〜6）: 表紙 → 問いかけ → 理想①②③ → 講師紹介',
     '- 問題教育（No.7〜56）: お悩み提示 → モデル顧客の失敗ナラティブ → 旧ビリーフ（原因）→ 新ビリーフ（解決策）→ メリット3点 → 事例Before/After → よくある間違い → 正しいポイント2点 → サービス表紙',
     '- ストーリー（No.57〜78）: 講師自身の起業物語（原点 → 挫折 → 転機 → 検証 → 型化 → 他社成功と理念）',
-    '- オファー（No.79〜106）: サービス詳細 → 実績 → 価格 → 特典 → クロージング',
+    '- オファー（No.79〜106）: サービス詳細 → 実績 → 価格 → 特典 → クロージング（分割払いNo.104の直後に、よくある質問No.' + QA_NO + 'が入る。ヒアリングにQ&Aの記入がある案件だけ）',
     '',
     '# 絶対に守るルール',
     '1. 内容の創作をしない。すべての内容はヒアリング記入内容から導出すること。ヒアリングにない事実・エピソード・固有名詞を追加しない。',
@@ -134,7 +199,8 @@ function daihonRulesPartB_() {
     '- No.100: 理想③を「30日後、〜状態になったら、空いた時間で何に挑戦しますか？」形式に。',
     '- No.102: ウェビナー特別価格の提示（質問5）。「本日Zoom終了までなら〜」',
     '- No.103: 「なぜこんな価格でご提供しているのかと申しますと〜」＋理念（No.78の中核フレーズ）を理由として引用。',
-    '- No.104: 分割払い案。定価から計算できる場合のみ（例: 24回払いで月々〇円）。計算できない料金体系（月額制など）なら台本・構成テキストとも空文字 "" を出力（スライドは斜線=スキップ扱い）。'
+    '- No.104: 分割払い案。定価から計算できる場合のみ（例: 24回払いで月々〇円）。計算できない料金体系（月額制など）なら台本・構成テキストとも空文字 "" を出力（スライドは斜線=スキップ扱い）。',
+    '- No.' + QA_NO + ': よくある質問（Q&A）。No.104の直後・No.105の前に入る1枚。ヒアリング内容のすぐ後ろにある「No.' + QA_NO + '（よくある質問）に使ってよいQ&A」に書かれた質問と答えだけを使い、作らない・足さない（新しい質問・答え・事例・数値を加えない。答えの意味を変えない）。「ここで、よくいただくご質問にお答えします。」の一言から入り、1問ずつ「〇〇というご質問です。」→答え、の順に話し言葉で読む。読み上げ30〜60秒（約150〜350字）に収める。Q&Aが無い案件は台本・構成テキストとも空文字 "" を出力（スライドも台本も入らない）。JSONの no は数値の ' + QA_NO + ' と書く。'
   ].join('\n');
 }
 
@@ -253,6 +319,8 @@ function buildManualPrompt_(hearing, assetLists, projectName) {
     '# ヒアリング【ストーリーの記入用】',
     hearing.story,
     '━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    '',
+    qaPromptBlock_(hearing.qa),
     '',
     '# あなたのタスク（' + (design ? '3' : '2') + '段階）',
     '',

@@ -34,14 +34,14 @@ function validateRows_(rows, expectedNos, field, warnings) {
     if (!isNaN(no) && r[field] !== undefined) map[no] = String(r[field]);
   });
   const missing = expectedNos.filter(function (no) { return map[no] === undefined; });
-  // No.99（特典⒉）と No.104（分割払い）は空を許容
-  const hardMissing = missing.filter(function (no) { return no !== 99 && no !== 104; });
+  // No.99（特典⒉）・No.104（分割払い）・No.104.5（Q&A）は空を許容
+  const hardMissing = missing.filter(function (no) { return no !== 99 && no !== 104 && no !== QA_NO; });
   if (hardMissing.length > 0) {
     throw new Error(field + ' の欠落行があります: No.' + hardMissing.join(',') + '（チャットで「欠落行だけ再出力して」と依頼し、追記貼り付けしてください）');
   }
   missing.forEach(function (no) {
     map[no] = '';
-    warnings.push(field + ' No.' + no + ' は空で補完（特典/分割なしの想定）');
+    warnings.push(field + ' No.' + no + ' は空で補完（特典/分割/Q&Aなしの想定）');
   });
   // 図解タグの必須チェック（構成テキストのみ）: 欠落は自動補完
   if (field === 'kousei_text') {

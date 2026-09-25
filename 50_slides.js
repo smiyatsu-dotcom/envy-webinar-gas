@@ -24,6 +24,7 @@ function generateSlides_(kouseiSheetId) {
   const copyFile = DriveApp.getFileById(cfg.TEMPLATE_SLIDE_ID).makeCopy(slideName, outFolder);
   const pres = SlidesApp.openById(copyFile.getId());
   const slides = pres.getSlides();
+  // ★Q&A（No.104.5）はテンプレに入れていない（複製して作る）ので、テンプレは108枚のまま
   if (slides.length !== 108) warnings.push('テンプレ枚数が108ではありません: ' + slides.length + '枚（TEMPLATE_SLIDE_IDがサンプル108枚版か確認）');
 
   const zukaiFolder = resolveAssetsFolder_(cfg, data, warnings);
@@ -32,12 +33,33 @@ function generateSlides_(kouseiSheetId) {
                 BG85: buildBgIndex_(cfg, '85'), BG25: buildBgIndex_(cfg, '25'), BG15: buildBgIndex_(cfg, '15') };
   const targets = designTargets_();
 
-  // No.→スライド（108枚: 松竹梅版No.96/102が単一版の直後に挿入されている）
-  function slideFor(no) { const i = no <= 96 ? no - 1 : (no <= 102 ? no : no + 1); return slides[i]; }
+  // No.→スライド（108枚: 松竹梅版No.96/102が単一版の直後に挿入されている）→ slideIndexFor_
+  function slideFor(no) { const i = slideIndexFor_(no); return i < 0 ? null : slides[i]; }
+
+  // Q&A（No.104.5）: 構成シートにQ&Aの行があり、中身があるときだけ、テンプレの No.104 を複製して
+  // その直後（＝No.105の前）に1枚足す。★複製はテンプレのままの No.104 から取るため、ループの前に行う
+  // （ループで No.104 が斜線スキップ・文言差し替えされたあとに複製すると、それを引き継いでしまう）。
+  // ★slides はここより前に取った配列なので、足してもその中の番号はずれない（No.105以降・料金バリアントの削除も同じ）。
+  // ★Q&Aの行が無い構成シート（この仕組みより前の案件）では何もしない。B16・B2を押し直しても割り込まない。
+  let qaSlide = null;
+  const qaRow = data.rows[QA_NO];
+  if (qaRow && !isSkipRow_({ no: QA_NO }, qaRow)) {
+    try {
+      qaSlide = slideFor(104).duplicate();
+      try { qaSlide.setSkipped(false); } catch (e) { }
+    } catch (e) { warnings.push('No.' + QA_NO + '（Q&A）スライドの複製に失敗: ' + e); }
+  }
   function matsuFor(no) { return no === 96 ? slides[96] : (no === 102 ? slides[103] : null); } // 松竹梅版
 
   rowDefs_().forEach(function (def) {
     const row = data.rows[def.no];
+    if (def.no === QA_NO) {   // Q&Aは記入がある案件だけ。無ければ何も入れず、警告も出さない
+      if (!qaSlide) return;
+      try { fillQa_(qaSlide, row, pres, warnings); }
+      catch (e) { warnings.push('No.' + QA_NO + '（Q&A）テキスト差し替え失敗: ' + e); }
+      setNotesText_(qaSlide, row.daihon || '');
+      return;
+    }
     if (!row) { warnings.push('No.' + def.no + ' が構成シートにありません'); return; }
     const isMatsuTarget = (def.no === 96 || def.no === 102);
     const slide = (isMatsuTarget && data.ryoukin === '松竹梅') ? matsuFor(def.no) : slideFor(def.no);
@@ -96,8 +118,19 @@ function generateSlides_(kouseiSheetId) {
 }
 
 /**
+ * No.→テンプレ（108枚）の何枚目か（0始まり）。
+ * 松竹梅版のNo.96/102が単一版の直後に1枚ずつ入っているので、97〜102は+0、103以降は+1。
+ * ★整数のNo.だけ。Q&A（No.104.5）はテンプレに無い（No.104を複製して作る）ので -1。
+ */
+function slideIndexFor_(no) {
+  if (no !== Math.floor(no) || no < 1 || no > 106) return -1;
+  return no <= 96 ? no - 1 : (no <= 102 ? no : no + 1);
+}
+
+/**
  * 台本を読み上げ順に連結したtxtを【出力】フォルダへ書き出す（音声化ツールへの入力用）。
- * - No.順 / 斜線スキップ行は除外 / 生成台本が空の行は固定台本(FIXED_DAIHON)で補完
+ * - No.順（Q&AのNo.104.5は104と105の間）/ 斜線スキップ行は除外 / 生成台本が空の行は固定台本(FIXED_DAIHON)で補完
+ * - Q&Aの行が無い構成シート（古い案件）では、Q&Aの台本は入らない（row が空なのでスキップ扱い）
  * - 進行用の書き込み「（挙手ありがとうございます。）」は読み上げから除去
  */
 function exportDaihonTxt_(cfg, data, warnings) {
@@ -646,6 +679,98 @@ function fitPriceLine_(sh, nums) {
       nums.forEach(function (n) { t.find(n).forEach(function (r) { r.getTextStyle().setFontSize(ns); }); });
     }
   } catch (e) { }
+}
+
+// ============================================================
+// よくある質問（Q&A・No.104.5）: No.104の複製に、Q（太字）とA（その下）を最大3組
+// ============================================================
+/** 構成テキスト → [{q, a}]（最大3組）。「Q. 〜」「A. 〜」の行。番号付き（Q1.）や全角も可 */
+function qaPairsFromKousei_(text) {
+  const pairs = [];
+  let cur = null;
+  klines_(text).forEach(function (l) {
+    const mq = l.match(/^[QＱ]\s*[0-9０-９]?\s*[\.．:：、]\s*(.*)$/);
+    const ma = l.match(/^[AＡ]\s*[0-9０-９]?\s*[\.．:：、]\s*(.*)$/);
+    if (mq) { cur = { q: mq[1].trim(), a: '' }; pairs.push(cur); }
+    else if (ma && cur) { cur.a = cur.a ? cur.a + '\n' + ma[1].trim() : ma[1].trim(); }
+    else if (cur) { if (cur.a) cur.a += '\n' + l; else cur.q += l; }   // 折り返しの続き
+    else { cur = { q: l, a: '' }; pairs.push(cur); }                   // Q.の無い書き方は質問として扱う
+  });
+  return pairs.filter(function (p) { return p.q; }).slice(0, 3);
+}
+
+/**
+ * 組の数と文字の長さから、文字の大きさを決める（1組=大きく、3組=小さく）。
+ * 箱（widthPt × heightPt）に収まらないときは、Q・A・間隔を1ptずつ縮める（答えの下限12pt）。
+ * @return {{title:number, q:number, a:number, gap:number}}
+ */
+function qaLayout_(pairs, widthPt, heightPt) {
+  const base = { 1: { q: 30, a: 22, gap: 0 }, 2: { q: 24, a: 18, gap: 16 }, 3: { q: 20, a: 16, gap: 12 } }[Math.max(1, Math.min(3, pairs.length))];
+  const lineH = 1.3;
+  const need = function (q, a, gap) {
+    let h = 0;
+    pairs.forEach(function (p, i) {
+      if (i > 0) h += gap;
+      // fillQa_ と同じく、1組のQ・Aはそれぞれ1段落（改行は空白にして折り返しに任せる）
+      h += Math.max(1, Math.ceil(emLen_('Q. ' + p.q.replace(/\n/g, ' ')) * q * 1.02 / widthPt)) * q * lineH;
+      if (p.a) h += Math.max(1, Math.ceil(emLen_('A. ' + p.a.replace(/\n/g, ' ')) * a * 1.02 / widthPt)) * a * lineH;
+    });
+    return h;
+  };
+  let q = base.q, a = base.a, gap = base.gap;
+  for (let n = 0; n < 20 && need(q, a, gap) > heightPt && a > 12; n++) {
+    q = Math.max(13, q - 1); a = Math.max(12, a - 1); gap = Math.max(4, gap - 1);
+  }
+  return { title: 22, q: q, a: a, gap: gap };
+}
+
+function fillQa_(slide, row, pres, warnings) {
+  const pairs = qaPairsFromKousei_(row.kouseiResolved || row.kousei);
+  if (pairs.length === 0) { warnings.push('No.' + QA_NO + '（Q&A）構成テキストから質問を読み取れません'); return; }
+  const box = biggest_(slide);
+  if (!box) { warnings.push('No.' + QA_NO + '（Q&A）差し替えボックス未検出'); return; }
+  const W = pres.getPageWidth(), H = pres.getPageHeight();
+
+  // テンプレ（No.104）の文字色・書体を引き継ぐ（背景が濃い灰色・文字が白）
+  let color = '#FFFFFF', family = null;
+  try {
+    const ts = box.getText().getRange(0, 1).getTextStyle();
+    family = ts.getFontFamily();
+    const c = ts.getForegroundColor();
+    if (c && c.getColorType() == SlidesApp.ColorType.RGB) color = c.asRgbColor().asHexString();
+  } catch (e) { }
+
+  // 見出し
+  const title = slide.insertTextBox('よくあるご質問', W * 0.08, H * 0.06, W * 0.84, H * 0.12);
+  const tt = title.getText();
+  tt.getTextStyle().setFontSize(22).setBold(true).setForegroundColor(color);
+  if (family) tt.getTextStyle().setFontFamily(family);
+  tt.getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
+  try { title.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE); } catch (e) { }
+
+  // 本文（Qは太字、Aはその下に細字）
+  const bx = W * 0.1, by = H * 0.2, bw = W * 0.8, bh = H * 0.74;
+  box.setLeft(bx).setTop(by).setWidth(bw).setHeight(bh);
+  const lay = qaLayout_(pairs, bw - 14, bh - 14);
+  const parts = [];   // {text, kind, gapAbove}
+  pairs.forEach(function (p, i) {
+    parts.push({ text: 'Q. ' + p.q.replace(/\n/g, ' '), kind: 'q', gapAbove: i > 0 });
+    if (p.a) parts.push({ text: 'A. ' + p.a.replace(/\n/g, ' '), kind: 'a', gapAbove: false });
+  });
+  const tr = box.getText();
+  tr.setText(parts.map(function (x) { return x.text; }).join('\n'));
+  tr.getTextStyle().setForegroundColor(color);
+  if (family) tr.getTextStyle().setFontFamily(family);
+  tr.getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.START).setSpaceAbove(0).setSpaceBelow(0);
+  let pos = 0;
+  parts.forEach(function (x) {
+    const r = tr.getRange(pos, pos + x.text.length);
+    r.getTextStyle().setFontSize(x.kind === 'q' ? lay.q : lay.a).setBold(x.kind === 'q');
+    if (x.gapAbove) r.getParagraphStyle().setSpaceAbove(lay.gap);
+    else if (x.kind === 'a') r.getParagraphStyle().setSpaceAbove(Math.round(lay.a * 0.3));
+    pos += x.text.length + 1;
+  });
+  try { box.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE); } catch (e) { }
 }
 
 // ============================================================
