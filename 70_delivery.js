@@ -11,6 +11,13 @@
 // ★移動ではなくコピー。原本を動かすと、社内で直したものが
 //   そのまま顧客に見えてしまう。直したものを届けたいときは、
 //   もう一度チェックを入れる。
+//
+// ★手で直した納品版は上書きしない（2026-09-25・宮津さん「手で直した分を上書きしない」）。
+//   それまでは押し直すたびに、納品フォルダの同じ名前のファイルをゴミ箱へ移してコピーし直していた。
+//   9/25、制作担当がホスピタソン社の納品版スライドを手で直した（p46・p64・p87-90の図解差し替え、
+//   p104のQ&A追加）。これは意図的な手直しで、押し直しで消えてはいけない。
+//   そこで、この処理がコピーした時刻を覚えておき、納品版がそれより後に更新されていたら
+//   （＝人かお客様が直した）作り直さずに止める。→ deliveredKept_
 // ============================================================
 
 // 共有ドライブの【納品】フォルダ。名前で探すと、共有ドライブの親を
@@ -31,17 +38,20 @@ function ensureDeliverCells_(st) {
       ['結果（システムが書きます）']
     ]);
     st.getRange('A21').setFontWeight('bold').setBackground('#efefef');
-    st.getRange('B22').setNote(
-      'スライド・音声mp3・サムネイル・LPの4点を、【納品】→ 会社名フォルダへコピーします。\n' +
-      'フォルダは宮津さんが事前に社名で作っているものを使います。無いときはエラーになります。\n' +
-      '同じ名前のファイルが既にあれば、古いほうはゴミ箱へ移します（30日以内なら復元可）。\n' +
-      '直して作り直したあとは、もう一度チェックを入れてください。'
-    );
+    st.getRange('B22').setNote(DELIVER_NOTE);
     st.getRange('B23').setWrap(true);
     if (st.getRange('B22').getDataValidation() === null) st.getRange('B22').insertCheckboxes();
     st.setRowHeight(23, 60);
   } catch (e) { /* 既存シートの体裁は壊さない */ }
 }
+
+/** B22のメモ。★動きを変えたらここを直す（押したときに古いメモを書き替える。→ processDelivery_） */
+const DELIVER_NOTE =
+  'スライド・音声mp3・サムネイル・LPの4点を、【納品】→ 会社名フォルダへコピーします。\n' +
+  'フォルダは案件開始のときに自動で作られています。無いときはエラーになります。\n' +
+  '前回この処理が入れたままの納品版は、ゴミ箱へ移して入れ直します（30日以内なら復元可）。\n' +
+  '★納品版があとから手で直されていたら（お客様の編集も含む）、上書きせずに止めます。\n' +
+  '作り直すなら、手直しを先にセルへ移し、納品版を手でゴミ箱へ移してから、もう一度チェックを入れてください。';
 
 /** 【納品】の中の会社名フォルダを返す。無ければ null（作らない）。 */
 function deliveryFolderOf_(company) {
@@ -51,11 +61,87 @@ function deliveryFolderOf_(company) {
   return it.hasNext() ? it.next() : null;
 }
 
-/** コピー先の同名ファイルをゴミ箱へ移してから、1件コピーする。 */
-function deliverOne_(file, dest, newName) {
-  const old = filesByName_(dest, newName);
-  while (old.hasNext()) { try { old.next().setTrashed(true); } catch (e) { /* 個別の失敗は無視 */ } }
-  file.makeCopy(newName, dest);
+/* ---------- 手直しした納品版を守る（2026-09-25） ----------
+ *
+ * ■ 前回コピーした時刻の置き場所
+ *   スクリプトプロパティに「DELIVERED_<納品フォルダのID>_<種類>」＝{id, at} で持つ。
+ *   ・Driveのファイルの説明欄には書かない（お客様に見える。お客様の編集で消えることもある）
+ *   ・appProperties は Drive の高度なサービスが要り、このプロジェクトでは有効にしていない
+ *   ・ファイルIDも持つので、納品版の名前が変えられていても（ウェビナータイトル名に変えるなど）見つけられる
+ *
+ * ■ 手直しありとみなすもの
+ *   ・記録があり、そのファイルの最終更新がコピーした時刻より後（DELIVERY_EDIT_MARGIN_MS の余裕つき）
+ *   ・★記録が無いGoogle形式のファイル（スライド・LPのドキュメント）。この仕組みより前に入った
+ *     納品版（9/25に手で直したホスピタソン社のスライドなど）は、直されたかどうか分からないので**守る側に倒す**
+ *   ・記録が無い mp3・png は守らない（今までどおり入れ直す）。Drive上では中身を直せず、
+ *     手で差し替えるなら「新しい版をアップロード」になるが、その場合も次回からは記録で見分けられる
+ */
+const DELIVERED_PROP_PREFIX = 'DELIVERED_';
+/** コピー直後にDrive側で最終更新が少し動くことがあるので、その分は手直しとみなさない */
+const DELIVERY_EDIT_MARGIN_MS = 2 * 60 * 1000;
+/** 画面（B23）とログに出す文。★文面は宮津さんの指示どおり（2026-09-25） */
+const DELIVERY_KEEP_MESSAGE =
+  '納品版に手直しがあるため作り直しません。作り直すなら手直しを先にセルへ移し、納品版を手でゴミ箱へ移してから押してください';
+
+function deliveredKey_(dest, kind) {
+  return DELIVERED_PROP_PREFIX + dest.getId() + '_' + kind;
+}
+
+function deliveredRecord_(dest, kind) {
+  try {
+    const v = PropertiesService.getScriptProperties().getProperty(deliveredKey_(dest, kind));
+    return v ? JSON.parse(v) : null;
+  } catch (e) { return null; }
+}
+
+function saveDeliveredRecord_(dest, kind, copy) {
+  PropertiesService.getScriptProperties().setProperty(deliveredKey_(dest, kind),
+    JSON.stringify({ id: copy.getId(), at: copy.getLastUpdated().getTime() }));
+}
+
+/** 手直しがあるか。★迷ったら「ある」（上書きしない側）に倒す */
+function handEdited_(f, rec) {
+  if (rec && rec.id === f.getId()) return f.getLastUpdated().getTime() > rec.at + DELIVERY_EDIT_MARGIN_MS;
+  return String(f.getMimeType()).indexOf('application/vnd.google-apps.') === 0;
+}
+
+/**
+ * いま納品フォルダにある、その種類の納品版（ゴミ箱の中のものは除く）。
+ * 同じ名前のものに加えて、前回コピーしたファイル（名前が変えられていても）も拾う。
+ */
+function deliveredNow_(dest, newName, rec) {
+  const out = [];
+  const seen = {};
+  const it = filesByName_(dest, newName);
+  while (it.hasNext()) {
+    const f = it.next();
+    if (f.isTrashed() || seen[f.getId()]) continue;
+    seen[f.getId()] = true;
+    out.push(f);
+  }
+  if (rec && rec.id && !seen[rec.id]) {
+    try {
+      const f = DriveApp.getFileById(rec.id);
+      if (!f.isTrashed() && f.getParents().hasNext() && f.getParents().next().getId() === dest.getId()) out.push(f);
+    } catch (e) { /* もう無い（人が消した）。拾わない */ }
+  }
+  return out;
+}
+
+/**
+ * 1件を納品フォルダへ入れる。前回この処理が入れたままのものはゴミ箱へ移して入れ直す。
+ * ★手直しがあれば、何も消さず・何も入れずに { kept: [名前…] } を返す。
+ */
+function deliverOne_(file, dest, newName, kind) {
+  const rec = deliveredRecord_(dest, kind);
+  const now = deliveredNow_(dest, newName, rec);
+  const edited = now.filter(function (f) { return handEdited_(f, rec); });
+  if (edited.length) return { kept: edited.map(function (f) { return f.getName(); }) };
+
+  now.forEach(function (f) { try { f.setTrashed(true); } catch (e) { /* 個別の失敗は無視 */ } });
+  const copy = file.makeCopy(newName, dest);
+  saveDeliveredRecord_(dest, kind, copy);
+  return { copied: true };
 }
 
 /**
@@ -129,6 +215,8 @@ function processDelivery_() {
 
     if (st.getRange('B22').getValue() !== true) continue;
     st.getRange('B22').setValue(false);   // 先に外す。失敗しても同じ依頼を回し続けない
+    // ★前からある構成シートのメモは古い説明（押せば必ず入れ直す）のままなので、押されたときに書き替える
+    try { if (st.getRange('B22').getNote() !== DELIVER_NOTE) st.getRange('B22').setNote(DELIVER_NOTE); } catch (e) { /* 体裁の失敗で止めない */ }
 
     const company = caseCompany_(String(projectName));
     const dest = deliveryFolderOf_(company);
@@ -147,6 +235,17 @@ function processDelivery_() {
 
     const done = [];
     const miss = [];
+    const kept = [];   // 手直しがあるので作り直さなかったもの（→ deliverOne_）
+
+    const put = function (f, newName, kind) {
+      const r = deliverOne_(f, dest, newName, kind);
+      if (r.kept) {
+        kept.push(kind);
+        Logger.log('★' + projectName + '｜' + kind + '：' + DELIVERY_KEEP_MESSAGE + '（' + r.kept.join('・') + '）');
+      } else {
+        done.push(kind);
+      }
+    };
 
     // ① スライド / ② 音声 / ③ LP … 案件フォルダから
     [['【スライド】' + String(projectName), 'スライド'],
@@ -154,7 +253,7 @@ function processDelivery_() {
      ['【LP】' + company, 'LP']].forEach(function (pair) {
       const it = filesByName_(src, pair[0]);
       if (!it.hasNext()) { miss.push(pair[1]); return; }
-      try { deliverOne_(it.next(), dest, pair[0]); done.push(pair[1]); }
+      try { put(it.next(), pair[0], pair[1]); }
       catch (e) { miss.push(pair[1] + '(' + e + ')'); }
     });
 
@@ -166,12 +265,13 @@ function processDelivery_() {
       else {
         const tf = filesByName_(asub.next(), 'サムネイル.png');
         if (!tf.hasNext()) miss.push('サムネイル');
-        else { deliverOne_(tf.next(), dest, '【サムネイル】' + company + '.png'); done.push('サムネイル'); }
+        else put(tf.next(), '【サムネイル】' + company + '.png', 'サムネイル');
       }
     } catch (e) { miss.push('サムネイル(' + e + ')'); }
 
     st.getRange('B23').setValue(
-      (done.length ? '納品しました: ' + done.join('・') : '納品できたものはありません') +
+      (kept.length ? '★' + kept.join('・') + '：' + DELIVERY_KEEP_MESSAGE + '。 ／ ' : '') +
+      (done.length ? '納品しました: ' + done.join('・') : '入れ直したものはありません') +
       (miss.length ? ' ／ 見つからなかったもの: ' + miss.join('・') : '') +
       ' → 【納品】/' + company + '/');
   }
