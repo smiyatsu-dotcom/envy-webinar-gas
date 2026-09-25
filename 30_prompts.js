@@ -526,7 +526,7 @@ function processLpFixRequests_() {
     try {
       const company = caseCompany_(projectName);
       const folder = caseFolderIfExists_(cfg, projectName);
-      if (!folder) { st.getRange('B3').setValue('LP修正: 案件フォルダが見つかりません'); continue; }
+      if (!folder) { st.getRange('B3').setValue('LP修正: 「【出力】生成物」の中に、この案件のフォルダが見つかりません。フォルダ名が「◯◯社」で合っているか見てから、もう一度B10にチェックを入れてください'); continue; }
 
       // いまのLP本文（Googleドキュメント）を読む
       let lpText = '';
@@ -538,7 +538,7 @@ function processLpFixRequests_() {
           break;
         }
       }
-      if (!lpText) { st.getRange('B3').setValue('LP修正: LPドキュメントが見つかりません'); continue; }
+      if (!lpText) { st.getRange('B3').setValue('LP修正: 【LP】のGoogleドキュメントがまだできていません。LPができてから（「【出力】生成物 → ◯◯社」に【LP】◯◯社 が出てから）、もう一度B10にチェックを入れてください'); continue; }
 
       const hearing = readHearing_(hearingId);
       const body = [
@@ -562,7 +562,7 @@ function processLpFixRequests_() {
       folder.createFile(fname, body, MimeType.PLAIN_TEXT);
       st.getRange('B3').setValue('LP修正: 依頼を受け付けました（15分ほどで直ります）');
     } catch (e) {
-      st.getRange('B3').setValue('LP修正: エラー ' + String(e));
+      st.getRange('B3').setValue(失敗の文_('LP修正', e, 'B10'));
     }
   }
 }
@@ -704,7 +704,7 @@ function processSlideFixRequests_() {
       folder.createFile(fname, body, MimeType.PLAIN_TEXT);
       st.getRange('B15').setValue('調べています（10分ほどお待ちください）');
     } catch (e) {
-      st.getRange('B15').setValue('エラー: ' + String(e));
+      st.getRange('B15').setValue(失敗の文_('調査の依頼', e, 'B14'));
     }
   }
 }
@@ -776,13 +776,13 @@ function processTitleConfirm_() {
     try {
       const held = filesByName_(folder, '【保留】サムネ指示_' + company + '.txt');
       if (!held.hasNext()) {
-        st.getRange('B3').setValue('サムネイル: 保留中の指示が見つかりません（LPがまだできていないか、既に作成済み）');
+        st.getRange('B3').setValue('サムネイル: 作る準備ができていません。LPがまだできていないか、すでに作り始めています。LPができてから押してください。すでに押したなら、そのまま待てば「【素材】投影資料 → ◯◯社_ヒアリングシート」にできます');
         continue;
       }
       held.next().setName('【指示】サムネ_' + company + '.txt');
       st.getRange('B3').setValue('サムネイル: 作り始めます（10分ほどで素材フォルダにできます）');
     } catch (e) {
-      st.getRange('B3').setValue('サムネイル: エラー ' + String(e));
+      st.getRange('B3').setValue(失敗の文_('サムネイル', e, 'B19'));
     }
   }
 }

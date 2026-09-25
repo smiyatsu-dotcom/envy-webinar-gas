@@ -232,8 +232,8 @@ function processDelivery_() {
     }
 
     let src;
-    try { src = caseFolderIfExists_(cfg, String(projectName)); if (!src) throw new Error('案件フォルダがありません'); } catch (e) {
-      st.getRange('B23').setValue('案件フォルダを開けません: ' + String(e));
+    try { src = caseFolderIfExists_(cfg, String(projectName)); if (!src) throw new Error('「【出力】生成物」の中に、この案件のフォルダがありません（フォルダ名が「◯◯社」で合っているか見てください）'); } catch (e) {
+      st.getRange('B23').setValue(失敗の文_('納品', e, 'B22'));
       continue;
     }
 

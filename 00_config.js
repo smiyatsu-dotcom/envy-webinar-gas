@@ -380,3 +380,45 @@ function caseFolder_(cfg, projectName) {
   const it = foldersByName_(parent, nm);
   return it.hasNext() ? it.next() : parent.createFolder(nm);
 }
+
+// ============================================================
+// 構成シートのセル（B3・B15・B23など）に出す失敗の文
+//
+// ★GASのエラーは英語のまま（"Exception: No item with the given ID..." など）で、
+//   PMが読んでも何が起きたか・次に何をすればよいか分からなかった。
+//   「何が起きたか」「次にすること」を日本語で先に書き、元の文は最後に（詳細）で添える。
+//   例：失敗の文_('LP修正', e, 'B10') →
+//     'LP修正: 失敗しました。ファイルかフォルダが見つかりません…。…もう一度B10にチェックを入れてください（詳細: …）'
+// ============================================================
+function 失敗の文_(見出し, e, 押し直すセル) {
+  const 元 = String(e && e.message ? e.message : e).replace(/^(Exception|Error|例外):\s*/i, '');
+  // 「B10」のようなセル名ならチェックの入れ直し、文ならそのまま使う
+  const 押し直す = !押し直すセル ? 'もう一度同じ操作をしてください'
+    : /^[A-Z]+\d+$/.test(押し直すセル) ? 'もう一度' + 押し直すセル + 'にチェックを入れてください'
+    : 押し直すセル;
+  const 相談 = '同じ文が2回続いたら、この欄の文をそのままDiscordの現場相談へ貼ってください';
+  let 何 = '', 次 = '';
+  // 仕組みが自分で投げた日本語のエラー（例：台本JSONがありません）は、そのままで読める。
+  // GAS自身のエラーは「Exception: 」で始まるので、それ以外で日本語なら自前のものとみなす
+  const 自前 = !/^Exception/i.test(String(e)) && /[぀-ヿ一-鿿]/.test(元);
+  if (自前) {
+    return 見出し + ': 失敗しました。' + 元 + '。書かれていることを直してから、' + 押し直す + '。' + 相談;
+  }
+  if (/no item with the given id|not found|could not be found|does not exist|was deleted|見つかりません|ありません|存在しません/i.test(元)) {
+    何 = 'ファイルかフォルダが見つかりません（消された・名前が変わった・移動された・共有が外れた可能性があります）';
+    次 = 'フォルダ名とファイル名が「◯◯社」で合っているか見てから、' + 押し直す + '。' + 相談;
+  } else if (/permission|access denied|not have access|forbidden|権限|アクセス/i.test(元)) {
+    何 = 'ファイルかフォルダを開く権限がありません';
+    次 = 'そのファイルやフォルダが共有ドライブの中にあり、サポートアカウントが開けるか見てから、' + 押し直す + '。' + 相談;
+  } else if (/exceeded maximum execution time|timed? ?out|timeout|時間切れ/i.test(元)) {
+    何 = '処理に時間がかかりすぎて、途中で止まりました';
+    次 = '5分ほど待ってから、' + 押し直す + '。' + 相談;
+  } else if (/too many times|service invoked|rate limit|quota|service .* failed|temporar|internal error|we're sorry|server error|backend error|\block\b|混み合|一時的/i.test(元)) {
+    何 = 'Googleの側が混み合っていました（入力の誤りではありません）';
+    次 = '5分ほど待ってから、' + 押し直す + '。' + 相談;
+  } else {
+    何 = '想定していないエラーが起きました';
+    次 = 'この欄の文をそのままDiscordの現場相談へ貼ってください';
+  }
+  return 見出し + ': 失敗しました。' + 何 + '。' + 次 + '（詳細: ' + 元 + '）';
+}

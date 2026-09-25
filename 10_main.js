@@ -111,7 +111,7 @@ function processImports_() {
         setKouseiStatus_(ss.getId(), 'レビュー待ち');
         upsertRow_(cfg, hearingId, name, 'レビュー待ち', kouseiUrl, '', w.join(' / '));
       } catch (e) {
-        setImportResult_(ss, 'txtの自動取り込みに失敗: ' + String(e));
+        setImportResult_(ss, 失敗の文_('txtの自動取り込み', e, '「【出力】生成物 → ◯◯社」のAIの出力（txt）が直れば、自動でもう一度取り込まれます'));
         upsertRow_(cfg, hearingId, name, 'AI出力待ち', kouseiUrl, '', 'txt自動取り込み失敗: ' + String(e));
       }
       continue;
@@ -125,7 +125,7 @@ function processImports_() {
       setKouseiStatus_(ss.getId(), 'レビュー待ち');
       upsertRow_(cfg, hearingId, name, 'レビュー待ち', kouseiUrl, '', warnings.join(' / '));
     } catch (e) {
-      setImportResult_(ss, '取り込み失敗: ' + String(e));
+      setImportResult_(ss, 失敗の文_('取り込み', e, 'もう一度' + PASTE_TAB + 'タブのB2にチェックを入れてください'));
       upsertRow_(cfg, hearingId, name, 'AI出力待ち', kouseiUrl, '', '取り込み失敗: ' + String(e));
     }
   }
@@ -154,7 +154,7 @@ function processApprovals_() {
       setKouseiStatus_(kouseiId, 'スライド生成済み: ' + result.pres.getUrl());
     } catch (e) {
       upsertRow_(cfg, hearingId, name, 'エラー', kouseiUrl, '', String(e));
-      setKouseiStatus_(kouseiId, 'エラー: ' + String(e));
+      setKouseiStatus_(kouseiId, 失敗の文_('エラー（スライドの生成）', e, 'B16'));
     }
   }
 }
@@ -261,7 +261,7 @@ function processSlideRegen_() {
       setKouseiStatus_(kouseiId, 'スライド生成済み: ' + result.pres.getUrl());
     } catch (e) {
       upsertRow_(cfg, hearingId, projectName, 'エラー', kouseiUrl, '', String(e));
-      setKouseiStatus_(kouseiId, 'エラー: ' + String(e));
+      setKouseiStatus_(kouseiId, 失敗の文_('エラー（スライドの生成）', e, 'B16'));
     }
   }
 }
