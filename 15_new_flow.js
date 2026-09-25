@@ -1,0 +1,436 @@
+/**
+ * 15_new_flow.gs（資料生成の新しい流れ・2026-09-26）
+ * 設計の正本: operations リポジトリ tools/資料生成_新しい流れ.md（10. ファイルのつなぎ が受け渡しの正本）
+ *
+ * ★「流れ＝新」（管理シート H列が「新」）の案件だけを動かす。H列が空の案件（旧の流れ）には
+ *   ここから1つも触らない。旧の流れの関数（10_main.js ほか）は、H列を見て新の案件だけ避ける。
+ *
+ * 新の流れの順番:
+ *   【開始】◯◯社.json（案件の下地.gs が置く）→ processStartOrders_ が登録し、プロンプトDoc・構成シート・
+ *   【指示】LP_・【指示】資料_ を作る（【入力】もヒアリングシートの複製も通さない）
+ *   → LPができたら1位のタイトルを採用して【保留】サムネ指示 → 【指示】サムネ_（人は押さない）
+ *   → 取り込み（AIの出力）と【図解済み】.json がそろったら、承認を待たずにスライドを組む（音声は見張りが作る）
+ *   → 全部できたら「確認して承認」（操作パネルが置く【承認】◯◯社.json か B2）
+ *   → そのあとだけ「納品フォルダへ入れる」（操作パネルが置く【納品指示】◯◯社.json か B22）
+ *   → 直しは PM相談室 → ボットが【指示】直し_ → Mac が直して【済】直し_ → スライドなら、ここが音声を残して組み直す
+ *
+ * 進みは 16_progress.js が 【状態】進み.json に書く（書くのはこのスクリプトだけ）。
+ * ★操作パネルは別のGASプロジェクト（~/webinar-panel-gas）。このスクリプトの権限（appsscript.json）は変えない
+ *   （権限を足すと再許可まで時間トリガーが止まり、進行中の案件の生成が止まるため・2026-09-26）。
+ *   だからこのスクリプトは外へ送らない（UrlFetchApp を使わない）。知らせは 進み.json の「知らせ」に積み、
+ *   操作パネルのプロジェクトが Google Chat の「テスト」スペースへ出す。
+ */
+
+const 流れ_列 = 8;          // 管理シート H列
+const 流れ_新 = '新';
+const 開始_頭 = '【開始】';
+const 開始_済の頭 = '【済】開始_';
+const 開始_失敗の上限 = 3;   // 読めても登録に失敗したとき、何回まで次の回にやり直すか
+
+/** 管理シートの1行（getValues の1行）が新の流れか。★H列が空なら旧の流れ（今までどおり） */
+function 新の流れか_(row) {
+  return String((row && row[流れ_列 - 1]) || '').trim() === 流れ_新;
+}
+
+/** 台帳の案件名（◯◯社）→ このスクリプトで持つ案件名（◯◯社_ヒアリングシート。素材フォルダ名と同じ） */
+function 新の流れの案件名_(案件名) {
+  const 名 = String(案件名 || '').trim();
+  if (!名) return '';
+  return /ヒアリングシート\s*$/.test(名) ? 名 : 名 + '_ヒアリングシート';
+}
+
+/**
+ * 【開始】◯◯社.json の中身を読む。形がおかしければ日本語で投げる（呼ぶ側は次の回に回す）。
+ * 形の正本: 設計書 10.「【開始】◯◯社.json」
+ */
+function 開始を読む_(text) {
+  let o;
+  try { o = JSON.parse(String(text || '')); } catch (e) { throw new Error('【開始】のファイルがJSONとして読めません'); }
+  if (!o || typeof o !== 'object') throw new Error('【開始】のファイルの中身が空です');
+  const 案件名 = String(o['案件名'] || '').trim();
+  const hid = String(o['ヒアリングシートID'] || '').trim();
+  if (!案件名) throw new Error('【開始】のファイルに「案件名」がありません');
+  const m = hid.match(/[-\w]{25,}/);
+  if (!m) throw new Error('【開始】のファイルの「ヒアリングシートID」が読めません');
+  return { 案件名: 案件名, ヒアリングシートID: m[0], 台帳の行: o['台帳の行'] || '', 置いた日時: String(o['置いた日時'] || '') };
+}
+
+/** ファイル名が【開始】◯◯社.json か（【済】開始_ は除く） */
+function 開始ファイルか_(name) {
+  const n = nfc_(name);
+  return n.indexOf(開始_頭) === 0 && /\.json$/i.test(n);
+}
+
+/** 管理シートの H1 に見出し「流れ」が無ければ足す（旧の行には何も書かない） */
+function 流れの見出しを整える_(sh) {
+  try { if (String(sh.getRange(1, 流れ_列).getValue()) !== '流れ') sh.getRange(1, 流れ_列).setValue('流れ').setFontWeight('bold'); }
+  catch (e) { /* 見出しは体裁。失敗しても止めない */ }
+}
+
+/** 管理シートの、そのヒアリングシートIDの行の H列を書く */
+function 流れを書く_(cfg, hearingId, 値) {
+  const reg = registry_(cfg);
+  if (!reg[hearingId]) return false;
+  const sh = mgmtSheet_(cfg);
+  流れの見出しを整える_(sh);
+  sh.getRange(reg[hearingId], 流れ_列).setValue(値);
+  return true;
+}
+
+// ============================================================
+// 新の流れ ①: 【開始】ファイル → 登録（【入力】を経由しない）
+// ============================================================
+function processStartOrders_() {
+  const cfg = getConfig_();
+  const known = registry_(cfg);
+  const folders = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID).getFolders();
+  const P = PropertiesService.getScriptProperties();
+
+  while (folders.hasNext()) {
+    const folder = folders.next();
+    const files = folder.getFiles();
+    while (files.hasNext()) {
+      const f = files.next();
+      if (!開始ファイルか_(f.getName())) continue;
+
+      let 開始;
+      try { 開始 = 開始を読む_(f.getBlob().getDataAsString('UTF-8')); }
+      catch (e) { Logger.log('【開始】を読めません（次の回にもう一度読みます）: ' + f.getName() + ' / ' + e); continue; }
+
+      const hid = 開始.ヒアリングシートID;
+      const 済の名前 = 開始_済の頭 + caseCompany_(開始.案件名) + '.json';
+      if (known[hid]) {   // 押し直し・二重置き。登録し直さない
+        try { f.setName(済の名前); } catch (e) { /* 次の回にまた名前を変える */ }
+        continue;
+      }
+
+      const pname = 新の流れの案件名_(開始.案件名);
+      const 失敗の鍵 = 'START_FAIL_' + hid;
+      try {
+        const doc = createPromptDoc_(pname, hid);                    // 30_prompts.js（【指示】LP_・【指示】資料_ も置く）
+        const ss = createKouseiScaffold_(pname, hid, doc.getUrl());  // 40_kousei_sheet.js
+        try { createUrlSheet_(cfg, pname); } catch (e) { Logger.log('URL管理シートの作成に失敗: ' + e); }
+        upsertRow_(cfg, hid, pname, 'AI出力待ち', ss.getUrl(), '',
+          '新しい流れ：自動で作っています（LP・サムネイル・構成と台本・図解・スライド・音声）。進みは操作パネルで見られます');
+        流れを書く_(cfg, hid, 流れ_新);
+        known[hid] = true;
+        try { 新の流れの設定タブを整える_(ss.getSheetByName(TABS.SETTINGS), folder.getId()); } catch (e) { /* 体裁 */ }
+        P.deleteProperty(失敗の鍵);
+        進み_記録を変える_(hid, function (記) { 動きを足す_(記, '始めました（③診断OK）'); });
+        f.setName(済の名前);
+      } catch (e) {
+        const n = Number(P.getProperty(失敗の鍵) || 0) + 1;
+        P.setProperty(失敗の鍵, String(n));
+        Logger.log('★新しい流れの登録に失敗（' + n + '回目）: ' + pname + ' / ' + e);
+        if (n >= 開始_失敗の上限) {
+          upsertRow_(cfg, hid, pname, 'エラー', '', '', '新しい流れの登録に失敗: ' + String(e));
+          流れを書く_(cfg, hid, 流れ_新);
+          known[hid] = true;
+          P.deleteProperty(失敗の鍵);
+          try { f.setName(済の名前); } catch (e2) { /* 次の回 */ }
+          進み_記録を変える_(hid, function (記) { 知らせを積む_(記, pname, '始められませんでした（' + 開始_失敗の上限 + '回やり直しても登録できません）。' + String(e)); });
+        }
+      }
+    }
+  }
+}
+
+// ============================================================
+// 新の流れ ②: 1件ずつ進める（5分ごと）
+// ============================================================
+function processNewFlow_() {
+  const cfg = getConfig_();
+  const rows = mgmtSheet_(cfg).getDataRange().getValues();
+  const 一回 = { 組んだ: false };   // スライドを組むのは1回の実行で1件まで（6分の上限を守る）
+  for (let i = 1; i < rows.length; i++) {
+    if (!新の流れか_(rows[i])) continue;   // ★旧の流れの行には触らない
+    const hearingId = String(rows[i][0] || '');
+    const projectName = String(rows[i][1] || '');
+    if (!hearingId || !projectName) continue;
+    try { 新の流れを1件進める_(cfg, rows[i], 一回); }
+    catch (e) { Logger.log('★新しい流れの処理で失敗: ' + projectName + ' / ' + e); }
+  }
+}
+
+function 新の流れを1件進める_(cfg, row, 一回) {
+  const hearingId = String(row[0]);
+  const projectName = String(row[1]);
+  let status = String(row[2] || '');
+  const kouseiUrl = String(row[3] || '');
+  const company = caseCompany_(projectName);
+
+  const 記 = 進み_記録を読む_(hearingId);
+  // 納品して14日たった案件は見に行かない（毎回すべての構成シートを開かないため）
+  if (記.納品 && 記.納品.済 && 記.納品.日時 && Date.now() - Date.parse(記.納品.日時) > 14 * 86400000) return;
+
+  let ss = null, st = null;
+  if (kouseiUrl) {
+    try { ss = SpreadsheetApp.openById(idFromUrl_(kouseiUrl)); st = ss.getSheetByName(TABS.SETTINGS); } catch (e) { ss = null; st = null; }
+  }
+  const folder = caseFolderIfExists_(cfg, projectName);
+  if (!folder) return;
+  if (st) 新の流れの設定タブを整える_(st, folder.getId());
+
+  let 観 = 観測する_(cfg, row, folder);
+
+  // (1) タイトルは1位を自動採用 → サムネイルへ（旧の流れの B19 を人が押す代わり）
+  // ★LPの仕事が終わってから（【指示】LP_ が消え、【作業中】LP も無い）。見張りはLPの仕事の終わりに
+  //   「【保留】サムネ指示_ ができたか」で成否を見るので、その前に名前を変えると失敗扱いになりLPを作り直してしまう
+  const LPの仕事中 = 観.ファイル.指示LP || (観.作業中 || []).some(function (w) { return w['仕事'] === 'LP'; });
+  if (観.ファイル.タイトル案 && 観.保留サムネ && !LPの仕事中) {
+    try {
+      観.保留サムネ.setName('【指示】サムネ_' + company + '.txt');
+      動きを足す_(記, 'タイトルは1位を採用して、サムネイルを作り始めました');
+      if (st) st.getRange('B3').setValue('サムネイル: タイトルは1位を採用して作り始めました（10分ほど）');
+    } catch (e) { Logger.log('サムネ指示の名前を変えられません: ' + e); }
+  }
+
+  // (2) 取り込みは processImports_ が新の流れの文で行う（10_main.js）。取り込めたら覚えておく
+  if (status === 'レビュー待ち' || status === 'スライド生成中' || status === '完了') 記.取り込み済み = true;
+
+  // (3) 直しの受付・直し終わりを記録へ
+  const 前の直し = JSON.stringify(記.直し || []);
+  記.直し = 直しをまとめる_(記.直し, 観.直し指示, 観.直し済, 日時の文字_(new Date()));
+  const 新しく受けた = 直しの差分_(JSON.parse(前の直し), 記.直し);
+  新しく受けた.受けた.forEach(function (d) {
+    動きを足す_(記, d.対象 + 'の直し（' + (d.元 || 'PM相談室') + '：' + String(d.依頼 || '').slice(0, 30) + '）');
+    if (記.承認 && 記.承認.済) {   // 承認のあとに直しが来たら、承認は外す（もう一度見てもらう）
+      記.承認 = { 済: false, 人: '', 日時: '' };
+      if (st) st.getRange('B2').setValue(false);
+      動きを足す_(記, '直しが入ったので、承認を外しました');
+    }
+  });
+  const 組み直す直し = [];
+  新しく受けた.終わった.forEach(function (d) {
+    動きを足す_(記, d.対象 + 'の直し：' + (d.結果 === '直した' ? '直しました' : '直せませんでした（' + (d.文 || '') + '）'));
+    if (d.結果 === '直した' && (d.対象 === 'スライド' || d.対象 === '台本' || d.対象 === '図解')) 組み直す直し.push(d);
+  });
+
+  // (4) スライド: 取り込みと図解がそろったら組む／図解の差し替え・直しなら音声を残して組み直す
+  const 図 = 観.ファイル.図解済み;
+  const 図の印 = 図 ? String(図.日時 || '') + '|' + String(図.更新 || '') : '';
+  if (st && !一回.組んだ) {
+    if (status === 'レビュー待ち' && 図) {
+      一回.組んだ = true;
+      if (スライドを組む_(cfg, row, false)) { 記.組んだ図解 = 図の印; 動きを足す_(記, 'スライドを組みました（音声を作り始めます）'); }
+      else 動きを足す_(記, 'スライドを組めませんでした');
+    } else if ((status === '完了' || status === 'エラー') && 記.取り込み済み && 図 && 記.組んだ図解 && 記.組んだ図解 !== 図の印) {
+      一回.組んだ = true;
+      if (スライドを組む_(cfg, row, false)) { 記.組んだ図解 = 図の印; 動きを足す_(記, '図解が差し替わったので、スライドだけ組み直しました（音声はそのまま）'); }
+    } else if ((status === '完了' || status === 'エラー') && 記.取り込み済み && 組み直す直し.length) {
+      一回.組んだ = true;
+      const 音声も = 組み直す直し.some(function (d) { return d.対象 === '台本'; });
+      if (スライドを組む_(cfg, row, 音声も)) {
+        if (図) 記.組んだ図解 = 図の印;
+        動きを足す_(記, '直しをスライドに入れました' + (音声も ? '（台本の直しなので音声も作り直します）' : '（音声はそのまま）'));
+      }
+    }
+  }
+  if (一回.組んだ) {   // 状態が変わったので、管理シートを読み直して見直す
+    const reg = registry_(cfg);
+    if (reg[hearingId]) {
+      const 新 = mgmtSheet_(cfg).getRange(reg[hearingId], 1, 1, 流れ_列).getValues()[0];
+      row = 新; status = String(新[2] || '');
+      観 = 観測する_(cfg, row, folder);
+    }
+  }
+
+  // (5) 承認: 操作パネルの【承認】◯◯社.json か B2（新の流れでは「確認して承認」）。全部できてからだけ受け付ける
+  let 進 = 進みを計算_(観, 記, new Date());
+  if (st && 観.承認ファイル) {
+    const 頼み = 観.承認ファイル.中身 || {};
+    const 人 = String(頼み['人'] || 頼み['メール'] || '操作パネル');
+    if (進.押せる.承認) {
+      記.承認 = { 済: true, 人: 人, 日時: 日時の文字_(new Date()) };
+      st.getRange('B2').setValue(true);
+      動きを足す_(記, '確認して承認しました（' + 人 + '）');
+      st.getRange('B3').setValue('承認しました（' + 人 + '）。操作パネルの「納品フォルダへ入れる」（またはB22）で納品できます');
+    } else if (!(記.承認 && 記.承認.済)) {
+      動きを足す_(記, '承認できませんでした（' + 人 + '）：' + 進.いまここ.文);
+    }
+    済にする_(folder, 観.承認ファイル.実物, '【済】承認_' + company + '.json');
+    観.承認ファイル = null;
+  }
+  if (st) {
+    const b2 = st.getRange('B2').getValue() === true;
+    if (b2 && !(記.承認 && 記.承認.済)) {
+      if (進.押せる.承認) {
+        記.承認 = { 済: true, 人: '構成シートのB2', 日時: 日時の文字_(new Date()) };
+        動きを足す_(記, '確認して承認しました（構成シートのB2）');
+        st.getRange('B3').setValue('承認しました。操作パネルの「納品フォルダへ入れる」（またはB22）で納品できます');
+      } else {
+        st.getRange('B2').setValue(false);
+        st.getRange('B3').setValue('承認はまだできません。' + 進.いまここ.文 + '。全部できてから押してください');
+      }
+    } else if (!b2 && 記.承認 && 記.承認.済) {
+      記.承認 = { 済: false, 人: '', 日時: '' };
+      動きを足す_(記, '承認が外されました（構成シートのB2）');
+    }
+  }
+
+  // (6) 納品: 操作パネルの【納品指示】◯◯社.json。承認のあとだけ（B22 は processDelivery_ が同じ決まりで受ける）
+  if (st && 観.納品ファイル) {
+    const 頼み = 観.納品ファイル.中身 || {};
+    const 人 = String(頼み['人'] || 頼み['メール'] || '操作パネル');
+    if (新の流れの承認済みか_(hearingId, st, 記)) {
+      const r = 納品する_(cfg, projectName, st);   // 70_delivery.js（B22 と同じ中身）
+      if (r.入れた) { 記.納品 = { 済: true, 日時: 日時の文字_(new Date()) }; 動きを足す_(記, '納品フォルダへ入れました（' + 人 + '）'); }
+      else 動きを足す_(記, '納品フォルダへ入れられませんでした：' + String(r.文).slice(0, 80));
+    } else {
+      動きを足す_(記, '承認の前なので、納品フォルダへは入れませんでした（' + 人 + '）');
+    }
+    済にする_(folder, 観.納品ファイル.実物, '【済】納品指示_' + company + '.json');
+    観.納品ファイル = null;
+  }
+
+  // (7) 進みを書き、止まったものを知らせる
+  進 = 進みを計算_(観, 記, new Date());
+  if (進.全部できた && !記.全部できた) { 記.全部できた = true; 動きを足す_(記, '全部できた'); 進 = 進みを計算_(観, 記, new Date()); }
+  止まったを知らせる_(projectName, 進, 記);
+  進.知らせ = (記.知らせ || []).slice();   // いま積んだ知らせも 進み.json に出す
+  進.動き = (記.動き || []).slice(-動き_最大);
+  進み_記録を書く_(hearingId, 記);
+  進みを書く_(folder, 進);
+}
+
+/** パネルから来たファイルを「済」の名前に変える（同じ名前の古い【済】はゴミ箱へ） */
+function 済にする_(folder, f, 新しい名前) {
+  if (!f) return;
+  try { const old = filesByName_(folder, 新しい名前); while (old.hasNext()) old.next().setTrashed(true); }
+  catch (e) { /* 古い【済】が残っても困らない */ }
+  try { f.setName(新しい名前); } catch (e) { try { f.setTrashed(true); } catch (e2) { /* 次の回にもう一度 */ } }
+}
+
+/**
+ * 新の流れの案件が承認済みか。★B2 だけでは見ない（B2 は誰でも押せ、全部できる前に押されたものは
+ * processNewFlow_ があとで外すため）。覚え（承認.済）と B2 の両方がそろっているときだけ承認済み。
+ */
+function 新の流れの承認済みか_(hearingId, st, 記) {
+  const r = 記 || 進み_記録を読む_(String(hearingId));
+  return !!(r.承認 && r.承認.済) && st.getRange('B2').getValue() === true;
+}
+
+/**
+ * スライドを組む（組み直す）。★音声は消さない（音声も=true のときだけ消して作り直させる）。
+ * 旧の流れの B16（processSlideRegen_）は音声を必ず消すので、それとは分けてある。
+ * generateSlides_ は台本txtを書き直すが、音声mp3があるかぎり見張りは音声を作り直さない。
+ */
+function スライドを組む_(cfg, row, 音声も) {
+  const hearingId = String(row[0]), projectName = String(row[1]), kouseiUrl = String(row[3]);
+  const kouseiId = idFromUrl_(kouseiUrl);
+  if (音声も) {
+    try {
+      const folder = caseFolderIfExists_(cfg, projectName);
+      if (folder) {
+        const mp3 = filesByName_(folder, '【音声】' + caseCompany_(projectName) + '.mp3');
+        while (mp3.hasNext()) mp3.next().setTrashed(true);
+      }
+    } catch (e) { /* 音声が無くても組み直しは進める */ }
+  }
+  upsertRow_(cfg, hearingId, projectName, 'スライド生成中', kouseiUrl, '', 音声も ? '組み直し中（音声も作り直す）' : '組み直し中（音声は残す）');
+  setKouseiStatus_(kouseiId, 'スライドを組んでいます');
+  try {
+    const result = generateSlides_(kouseiId);   // 50_slides.js
+    upsertRow_(cfg, hearingId, projectName, '完了', kouseiUrl, result.pres.getUrl(), result.warnings.join(' / '));
+    setKouseiStatus_(kouseiId, 'スライドができました: ' + result.pres.getUrl());
+    return true;
+  } catch (e) {
+    upsertRow_(cfg, hearingId, projectName, 'エラー', kouseiUrl, '', String(e));
+    setKouseiStatus_(kouseiId, 失敗の文_('スライドを組む', e, '図解を差し替えるか、宮津さんへ相談してください'));
+    return false;   // 知らせは、止まった行として 止まったを知らせる_ が積む
+  }
+}
+
+/**
+ * ★手で回す用: 構成シートのURLかヒアリングシートIDを入れて実行すると、音声を残してスライドだけ組み直す。
+ *   図解を手で差し替えたとき・セルを手で直したときに使う（旧の流れの B16 と違い、音声は消さない）。
+ */
+function スライドだけ組み直す() {
+  const 指定 = 'ここに構成シートのURLかヒアリングシートIDを入れる';
+  const cfg = getConfig_();
+  const rows = mgmtSheet_(cfg).getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === 指定 || String(rows[i][3]) === 指定) {
+      Logger.log(スライドを組む_(cfg, rows[i], false) ? '組み直しました（音声はそのまま）' : '組み直せませんでした（管理シートF列を見てください）');
+      return;
+    }
+  }
+  Logger.log('管理シートに見つかりません: ' + 指定);
+}
+
+// ============================================================
+// 構成シート（設定タブ）の新の流れ用の体裁
+// ============================================================
+const 新_A2 = '確認して承認（全部できてから。操作パネルからも押せます）';
+const パネルのリンクのセル = 'C1';   // ★設定タブで使っていない所（A・B列だけを使っている）
+
+/** 操作パネル（別のGASプロジェクト ~/webinar-panel-gas のウェブアプリ）のURL。スクリプトプロパティ PANEL_URL */
+function パネルのURL_() {
+  try { return PropertiesService.getScriptProperties().getProperty('PANEL_URL') || ''; } catch (e) { return ''; }
+}
+
+/** 「操作パネルを開く」の式。?f= は案件フォルダ（【出力】生成物 → ◯◯社）のID */
+function パネルのリンクの式_(url, folderId) {
+  return '=HYPERLINK("' + String(url).replace(/"/g, '') + '?f=' + encodeURIComponent(folderId) + '","▶ 操作パネルを開く（別のタブ）")';
+}
+
+/** 新の流れの案件だけ: A2 の見出しを「確認して承認」に、C1 に「操作パネルを開く」リンク */
+function 新の流れの設定タブを整える_(st, folderId) {
+  if (!st) return;
+  try {
+    if (String(st.getRange('A2').getValue()) !== 新_A2) st.getRange('A2').setValue(新_A2);
+    const url = パネルのURL_();
+    if (!url || !folderId) return;   // 操作パネルを公開して PANEL_URL を入れるまでは出さない（入れた次の回に出る）
+    const 式 = パネルのリンクの式_(url, folderId);
+    const c = st.getRange(パネルのリンクのセル);
+    if (String(c.getFormula()) !== 式) c.setFormula(式).setFontWeight('bold').setFontColor('#1a73e8');
+  } catch (e) { /* 体裁の失敗で止めない */ }
+}
+
+// ============================================================
+// 知らせ（★テスト案件は Google Chat の「テスト」スペースへ。本物の社内チャットには出さない）
+// ============================================================
+/**
+ * テスト用の案件か。★operations の 定型連絡.gs 共通_テスト案件か_ と同じ決め方（案件名だけで見る版）。
+ *   あちらを直したら、ここもそろえる。
+ */
+const 共通_テストの目印_ = ['テスト', 'リハーサル'];
+const 共通_テストの案件名_ = ['4章_畠', '3-2_福田', '2-4_桑野', '稼働A', '稼働B'];
+function テスト案件か_(案件名) {
+  const 名 = caseCompany_(String(案件名 || '').trim());
+  if (!名) return false;
+  if (共通_テストの案件名_.indexOf(名) >= 0) return true;
+  return 共通_テストの目印_.some(function (m) { return 名.indexOf(m) >= 0; });
+}
+
+/**
+ * 新の流れの知らせを積む。★ここからは外へ送らない（このスクリプトは UrlFetchApp の権限を持たない）。
+ * 積んだものは 進み.json の「知らせ」に出て、操作パネルのプロジェクト（~/webinar-panel-gas）が
+ * テスト案件のものだけ Google Chat の「テスト」スペースへ出す。本番の案件のものは、今は Chat へ出さない
+ * （構成シートB3・管理シートF列・操作パネルに出る）。
+ */
+function 知らせを積む_(記, projectName, 文) {
+  記.知らせ = 記.知らせ || [];
+  記.知らせの番号 = (Number(記.知らせの番号) || 0) + 1;
+  記.知らせ.push({ ID: String(記.知らせの番号), 日時: 日時の文字_(new Date()), 文: caseCompany_(projectName) + ' … ' + 文, テスト: テスト案件か_(projectName) });
+  if (記.知らせ.length > 知らせ_最大) 記.知らせ = 記.知らせ.slice(-知らせ_最大);
+  Logger.log('（知らせ）' + 文);
+}
+const 知らせ_最大 = 20;
+
+/** 止まった行を、同じ内容では1回だけ知らせる */
+function 止まったを知らせる_(projectName, 進, 記) {
+  記.知らせた = 記.知らせた || {};
+  const いま = {};
+  ['LP', '資料'].forEach(function (k) {
+    (進.系統[k] || []).forEach(function (it) {
+      if (it.状態 !== '止まった') return;
+      const 鍵 = it.名 + '｜' + String(it.文 || '').slice(0, 60);
+      いま[鍵] = true;
+      if (記.知らせた[鍵]) return;
+      知らせを積む_(記, projectName, '「' + it.名 + '」が止まりました。' + (it.文 || ''));
+      動きを足す_(記, '「' + it.名 + '」が止まりました');
+    });
+  });
+  記.知らせた = いま;   // 直ったものは忘れる（また止まったら知らせる）
+}

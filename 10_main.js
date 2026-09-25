@@ -4,6 +4,8 @@
  *
  * 管理シート列:
  *  A:ヒアリングファイルID B:案件名 C:ステータス D:構成シートURL E:スライドURL F:メッセージ G:更新日時
+ *  H:流れ（「新」＝資料生成の新しい流れ・空＝旧の流れ。★upsertRow_ はA〜Gしか書かないので、H列は消えない）
+ *  新しい流れの動きは 15_new_flow.js。旧の流れの関数は H列が「新」の行だけ避ける（取り込みの文・承認）
  *
  * 状態遷移:
  *  （ヒアリング検知）→ AI出力待ち →（貼り付け＋取り込みチェック）→ レビュー待ち
@@ -44,6 +46,10 @@ function main() {
     processSlideFixRequests_();
     processDelivery_();
     syncThumbnailToOutput_();
+    // ★新しい流れ（管理シート H列＝新）。旧の流れの処理がすべて終わってから回す。
+    //   ここで失敗しても旧の流れには響かないよう、1つずつ包む（→ 15_new_flow.js）
+    try { processStartOrders_(); } catch (e) { Logger.log('★processStartOrders_: ' + e); }
+    try { processNewFlow_(); } catch (e) { Logger.log('★processNewFlow_: ' + e); }
   } finally {
     lock.releaseLock();
   }
@@ -97,6 +103,11 @@ function processImports_() {
   for (let i = 1; i < values.length; i++) {
     const [hearingId, name, status, kouseiUrl] = values[i];
     if ((status !== 'AI出力待ち' && status !== 'レビュー待ち') || !kouseiUrl) continue; // レビュー待ちでも再取り込み可
+    // ★新しい流れ（H列＝新）は承認を待たずに進むので、取り込んだあとの案内の文だけ変える。旧の流れは今までどおり
+    const 新 = 新の流れか_(values[i]);
+    const 次の案内 = 新 ? ' → 図解がそろうと、スライドを自動で組みます（承認は全部できてから）'
+      : ' → 各タブをレビューし、設定タブの承認チェックをONにしてください';
+    const 取り込み後のB3 = 新 ? '取り込み済み（図解がそろうとスライドを組みます）' : 'レビュー待ち';
     let ss;
     try { ss = SpreadsheetApp.openById(idFromUrl_(String(kouseiUrl))); } catch (e) { continue; }
     // 手貼りのチェックが入っていないときは、案件フォルダのtxtを見て自動で取り込む
@@ -106,9 +117,8 @@ function processImports_() {
       setAutoStamp_(ss.getId(), auto.stamp);  // 失敗しても同じ内容で繰り返さない（txtを直せば再実行される）
       try {
         const w = importAiOutput_(ss, auto);
-        setImportResult_(ss, 'txtから自動取り込み' + (w.length ? '（警告: ' + w.join(' / ') + '）' : '') +
-          ' → 各タブをレビューし、設定タブの承認チェックをONにしてください');
-        setKouseiStatus_(ss.getId(), 'レビュー待ち');
+        setImportResult_(ss, 'txtから自動取り込み' + (w.length ? '（警告: ' + w.join(' / ') + '）' : '') + 次の案内);
+        setKouseiStatus_(ss.getId(), 取り込み後のB3);
         upsertRow_(cfg, hearingId, name, 'レビュー待ち', kouseiUrl, '', w.join(' / '));
       } catch (e) {
         setImportResult_(ss, 失敗の文_('txtの自動取り込み', e, '「【出力】生成物 → ◯◯社」のAIの出力（txt）が直れば、自動でもう一度取り込まれます'));
@@ -119,10 +129,9 @@ function processImports_() {
 
     try {
       const warnings = importAiOutput_(ss);
-      const msg = '取り込み成功' + (warnings.length ? '（警告: ' + warnings.join(' / ') + '）' : '') +
-        ' → 各タブをレビューし、設定タブの承認チェックをONにしてください';
+      const msg = '取り込み成功' + (warnings.length ? '（警告: ' + warnings.join(' / ') + '）' : '') + 次の案内;
       setImportResult_(ss, msg);
-      setKouseiStatus_(ss.getId(), 'レビュー待ち');
+      setKouseiStatus_(ss.getId(), 取り込み後のB3);
       upsertRow_(cfg, hearingId, name, 'レビュー待ち', kouseiUrl, '', warnings.join(' / '));
     } catch (e) {
       setImportResult_(ss, 失敗の文_('取り込み', e, 'もう一度' + PASTE_TAB + 'タブのB2にチェックを入れてください'));
@@ -141,6 +150,8 @@ function processApprovals_() {
   for (let i = 1; i < values.length; i++) {
     const [hearingId, name, status, kouseiUrl] = values[i];
     if (status !== 'レビュー待ち' || !kouseiUrl) continue;
+    // ★新しい流れ（H列＝新）の B2 は「確認して承認」。スライドは図解がそろったら自動で組む（→ 15_new_flow.js）
+    if (新の流れか_(values[i])) continue;
     const kouseiId = idFromUrl_(String(kouseiUrl));
     let approved = false;
     try { approved = isApproved_(kouseiId); } catch (e) { continue; }

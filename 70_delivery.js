@@ -224,19 +224,36 @@ function processDelivery_() {
     // ★前からある構成シートのメモは古い説明（押せば必ず入れ直す）のままなので、押されたときに書き替える
     try { if (st.getRange('B22').getNote() !== DELIVER_NOTE) st.getRange('B22').setNote(DELIVER_NOTE); } catch (e) { /* 体裁の失敗で止めない */ }
 
+    // ★新しい流れ（管理シート H列＝新）は、承認（B2＝「確認して承認」）のあとだけ受け付ける。旧の流れは今までどおり
+    if (新の流れか_(rows[i]) && !新の流れの承認済みか_(String(rows[i][0]), st)) {
+      st.getRange('B23').setValue('まだ承認されていないので、納品フォルダへは入れていません。全部できたら「確認して承認」（操作パネルかB2）をしてから、もう一度押してください');
+      continue;
+    }
+
+    const r = 納品する_(cfg, String(projectName), st);
+    if (新の流れか_(rows[i]) && r.入れた) 進み_納品を記録_(String(rows[i][0]), r.文);
+  }
+}
+
+/**
+ * 1件ぶんの納品（B22 の中身）。結果は B23 に書き、{文, 入れた} を返す。
+ * ★processDelivery_（B22）と操作パネルの「納品フォルダへ入れる」の両方から呼ぶ。中身は B22 のときと同じ。
+ */
+function 納品する_(cfg, projectName, st) {
     const company = caseCompany_(String(projectName));
     const dest = deliveryFolderOf_(company);
     if (!dest) {
-      st.getRange('B23').setValue(
-        '【納品】の中に「' + company + '」フォルダが見つかりません。' +
-        'システムは納品フォルダを作りません。先に作ってから、もう一度チェックを入れてください。');
-      continue;
+      const 文 = '【納品】の中に「' + company + '」フォルダが見つかりません。' +
+        'システムは納品フォルダを作りません。先に作ってから、もう一度チェックを入れてください。';
+      st.getRange('B23').setValue(文);
+      return { 文: 文, 入れた: false };
     }
 
     let src;
     try { src = caseFolderIfExists_(cfg, String(projectName)); if (!src) throw new Error('「【出力】生成物」の中に、この案件のフォルダがありません（フォルダ名が「◯◯社」で合っているか見てください）'); } catch (e) {
-      st.getRange('B23').setValue(失敗の文_('納品', e, 'B22'));
-      continue;
+      const 文 = 失敗の文_('納品', e, 'B22');
+      st.getRange('B23').setValue(文);
+      return { 文: 文, 入れた: false };
     }
 
     const done = [];
@@ -279,12 +296,13 @@ function processDelivery_() {
       }
     } catch (e) { miss.push('サムネイル(' + e + ')'); }
 
-    st.getRange('B23').setValue(
+    const 文 =
       (kept.length ? '★' + kept.join('・') + '：' + DELIVERY_KEEP_MESSAGE + '。 ／ ' : '') +
       (done.length ? '納品しました: ' + done.join('・') : '入れ直したものはありません') +
       (miss.length ? ' ／ 見つからなかったもの: ' + miss.join('・') : '') +
-      ' → 【納品】/' + company + '/');
-  }
+      ' → 【納品】/' + company + '/';
+    st.getRange('B23').setValue(文);
+    return { 文: 文, 入れた: done.length > 0 || kept.length > 0 };
 }
 
 /**
