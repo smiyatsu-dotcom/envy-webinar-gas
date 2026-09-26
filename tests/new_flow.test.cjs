@@ -232,6 +232,10 @@ test('直しをまとめる_: タイトルの直しは台本のセルを書き�
   assert.strictEqual(一[0].状態, '作り直し中');
   const 二 = G.直しをまとめる_(一, [], [{ ID: 't1', 結果: '直した', 文: 'ok', 直すセル: true }], 'T2', { t1: { 結果: '直した', 文: '' } });
   assert.strictEqual(二[0].状態, '済');
+  // 構成シートへ書けなかった（直せない）あとで【済】が「直した」で来ても、直せないのまま
+  const 失 = G.直しをまとめる_([], [{ ID: 't2', 対象: 'タイトル' }], [], 'T1', { t2: { 結果: '直せない', 文: '違う' } });
+  const 失2 = G.直しをまとめる_(失, [], [{ ID: 't2', 結果: '直した', 文: 'ok', 直すセル: true }], 'T2', { t2: { 結果: '直せない', 文: '違う' } });
+  assert.strictEqual(失2[0].状態, '止まった'); assert.strictEqual(失2[0].結果, '直せない');
   const ス = G.直しをまとめる_([], [{ ID: 's1', 対象: 'スライド' }], [], 'T1', { s1: { 結果: '直した', 文: '' } });
   assert.strictEqual(ス[0].状態, '済');   // スライドの直しはセルを書けば済（今までどおり）
 });
@@ -501,7 +505,7 @@ test('見張りの様子_・進み: Macの心拍が20分より古いと「生成
   assert.strictEqual(G.進みを計算_(観2, G.進み_記録の既定_(), いま).いまここ.文, '全部できました');
 });
 
-test('新の流れ: 心拍の古いファイルがあれば 進み.json に出し、宮津さんへの知らせを1通だけ置く', () => {
+test('新の流れ: 心拍の古いファイルがあれば 進み.json に出す。テスト案件しか無いときは、宮津さんへの知らせは置かない', () => {
   const env = 世界(true);
   const 固定 = Object.values(env.folders).find(d => d.name === '【固定】ウェビナー自動生成');
   固定.addFile('【心拍】資料の見張り_mac1.json', JSON.stringify({ PC: 'mac1', 最後に回った時刻: '2020-01-01T00:00:00+09:00' }), 'application/json');
@@ -509,8 +513,8 @@ test('新の流れ: 心拍の古いファイルがあれば 進み.json に出�
   const 進 = JSON.parse(Object.values(env.files).find(f => f.name === '【状態】進み.json' && /動画撮影テスト社/.test(f.parent.path)).content);
   assert.strictEqual(進.見張り.止まった, true);
   const 通 = Object.values(env.files).filter(f => /^【知らせ】見張り_/.test(f.name));
-  assert.strictEqual(通.length, 1);
-  assert.strictEqual(JSON.parse(通[0].content).宛先, '社内');
+  // ★テスト案件だけのとき（Mac が眠るたびに社内へ出ないように。2026-09-27）。本物のまだ納品していない案件があるときだけ1通置く
+  assert.strictEqual(通.length, 0);
 });
 
 test('新の流れ: 図解だけ差し替えたら（【図解済み】を書き直し）、音声を残してスライドだけ組み直す', () => {
