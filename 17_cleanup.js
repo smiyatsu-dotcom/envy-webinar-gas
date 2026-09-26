@@ -74,8 +74,11 @@ function テスト案件を片付ける_(案件名, 下見) {
   try {
     const sub = foldersByName_(DriveApp.getFolderById(cfg.ASSETS_FOLDER_ID), 新の流れの案件名_(company));
     if (sub.hasNext()) {
-      const z = filesByName_(sub.next(), 図解済み_ファイル名);
-      while (z.hasNext()) { const f = z.next(); する('【素材】投影資料/' + 新の流れの案件名_(company) + '/' + 図解済み_ファイル名, function () { f.setTrashed(true); }); }
+      const af = sub.next();
+      [図解済み_ファイル名, 図解止まった_ファイル名].forEach(function (名) {
+        const z = filesByName_(af, 名);
+        while (z.hasNext()) { const f = z.next(); する('【素材】投影資料/' + 新の流れの案件名_(company) + '/' + 名, function () { f.setTrashed(true); }); }
+      });
     }
   } catch (e) { 出.push('　★素材フォルダを見られませんでした：' + e); }
 

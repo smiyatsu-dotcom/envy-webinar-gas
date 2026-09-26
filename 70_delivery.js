@@ -302,7 +302,7 @@ function 納品する_(cfg, projectName, st) {
       (miss.length ? ' ／ 見つからなかったもの: ' + miss.join('・') : '') +
       ' → 【納品】/' + company + '/';
     st.getRange('B23').setValue(文);
-    return { 文: 文, 入れた: done.length > 0 || kept.length > 0 };
+    return { 文: 文, 入れた: done.length > 0 || kept.length > 0, 残した: kept };
 }
 
 /**

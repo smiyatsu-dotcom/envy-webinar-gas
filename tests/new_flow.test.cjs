@@ -175,6 +175,23 @@ test('進み: 図解の「止まった」一覧は、済の行の注意として
   assert.strictEqual(図.状態, '済');
   assert.ok(/工程3/.test(図.文));
   assert.strictEqual(図.枚, '15枚');
+  // ★作れなかった図解が残っているうちは承認を押せない。いまここに理由が出る
+  const 進 = G.進みを計算_(観, G.進み_記録の既定_(), いま);
+  assert.strictEqual(進.押せる.承認, false); assert.strictEqual(進.絵待ち, true);
+  assert.ok(/工程3/.test(進.いまここ.文) && /ChatGPT/.test(進.いまここ.次), 進.いまここ.文);
+  // 制作担当が手で上書きしたら（図解済みより新しい）承認できる
+  観.ファイル.画像の日時 = { '工程3': Date.parse('2026-09-26T11:00:00+09:00') };
+  assert.strictEqual(G.進みを計算_(観, G.進み_記録の既定_(), いま).押せる.承認, true);
+});
+
+test('進み: 図解・挿絵を2回作れず【図解止まった】があれば「止まった」（待ちのままにしない）', () => {
+  const 観 = 全部できた観();
+  観.状態 = 'AI出力待ち'; 観.ファイル.図解済み = null;
+  観.ファイル.図解止まった = { 日時: '2026-09-26T10:30:00+09:00', 文: '2回作り直しても作れませんでした。Discordの現場相談へ' };
+  const 進 = G.進みを計算_(観, G.進み_記録の既定_(), いま);
+  const 図 = 進.系統.資料.find(x => x.名 === '図解・挿絵');
+  assert.strictEqual(図.状態, '止まった'); assert.ok(/現場相談/.test(図.文));
+  assert.ok(/図解・挿絵/.test(進.いまここ.文));
 });
 
 test('進み: 直しを受けたら該当する行が「作り直し中」、承認は押せない', () => {
@@ -323,7 +340,7 @@ function 世界(withNew) {
 
 /** 重い処理（Slides・Docs・AI出力の解析）は、どちらのコードでも同じ偽物に差し替える */
 function 差し替え(ctx, env) {
-  ctx.generateSlides_ = (kid) => { env.log.push(['generateSlides', kid]); return { pres: { getUrl: () => 'https://slide/new/' + kid }, warnings: ['w'] }; };
+  ctx.generateSlides_ = (kid) => { env.log.push(['generateSlides', kid]); if (env.組めない) throw new Error('組めない（テスト）'); return { pres: { getUrl: () => 'https://slide/new/' + kid }, warnings: ['w'] }; };
   ctx.importAiOutput_ = (ss, texts) => { env.log.push(['import', ss.getId(), texts ? 'txt' : 'paste']); return ['警告x']; };
   ctx.DocumentApp = { openById: () => ({ getBody: () => ({ getText: () => 'サブタイトル\nメインタイトル' }) }), create: () => { throw new Error('使わない'); } };
   ctx.createPromptDoc_ = (pname, hid) => { env.log.push(['createPromptDoc', pname, hid]); return { getUrl: () => 'https://doc/' + hid }; };
@@ -480,6 +497,12 @@ test('新の流れ: 全部できたあとパネルの【承認】→ 承認・B2
   assert.ok(!env.log.some(e => e[0] === 'generateSlides'));
   assert.strictEqual(記().直し.find(d => d.ID === 'c3').状態, '止まった');
   assert.ok(Object.values(env.files).some(f => /【知らせ待ち】$/.test(f.parent.path) && /直し（c3）/.test(f.content)));
+  // セルは書けたがスライドを組めなかった → 【止まった】直すセル_（ボットが「直せませんでした」と返す）
+  env.組めない = true;
+  N.addFile('【直すセル】動画撮影テスト社_d4.json', JSON.stringify({ ID: 'd4', 対象: 'スライド', 直す: [{ no: 40, 欄: '構成テキスト', 列: 'D', 前: '後の構成', 後: 'もっと後の構成' }] }));
+  run();
+  assert.ok(env.log.some(e => e[0] === 'rename' && e[2] === '【止まった】直すセル_動画撮影テスト社_d4.json'), JSON.stringify(env.log.filter(e => e[0] === 'rename')));
+  env.組めない = false;
 });
 
 test('直すセルを当てる_: No・列で当て、前が違えば1つも書かない。No.96の松竹梅の2行目も見る', () => {
@@ -488,6 +511,11 @@ test('直すセルを当てる_: No・列で当て、前が違えば1つも書�
   assert.deepStrictEqual(JSON.parse(JSON.stringify(r.書く)), [{ タブ: 'オファー', 行: 2, 列: 4, 後: '新' }, { タブ: 'オファー', 行: 4, 列: 5, 後: '新松' }]);
   r = G.直すセルを当てる_(タブ, [{ no: 40, 列: 'D', 前: '構40', 後: '新' }, { no: 40, 列: 'E', 前: 'ちがう', 後: 'x' }]);
   assert.strictEqual(r.書く.length, 0); assert.ok(/手で直されたかも/.test(r.違う[0]));
+  // 取り込みで図解タグを足した行：タグを外して比べ、書くときはタグを残す
+  const 札つき = { オファー: [['No.'], [36, '', '', 'デメリット\n\n図解（図解2）', '台']] };
+  r = G.直すセルを当てる_(札つき, [{ no: 36, 列: 'D', 前: 'デメリット', 後: 'デメリットは3つ' }]);
+  assert.strictEqual(r.違う.length, 0, r.違う.join());
+  assert.strictEqual(r.書く[0].後, 'デメリットは3つ\n\n図解（図解2）');
   r = G.直すセルを当てる_(タブ, [{ no: 77, 列: 'D', 前: '', 後: 'x' }]);
   assert.ok(/ありません/.test(r.違う[0]));
 });
@@ -582,6 +610,31 @@ test('片付け: 下見は一覧だけ。本番はゴミ箱へ・管理シート
   assert.ok(env.props['SHINKO_H8newxxxxxxxxxxxxxxxxxxxxxxxxxxx'] === undefined);
   assert.ok(env.log.some(e => e[0] === 'trash' && /動画撮影テスト社\/【状態】進み\.json/.test(e[1])));
   assert.ok(!env.log.some(e => /過去/.test(JSON.stringify(e)) && e[0] !== 'deleteRow'));
+});
+
+test('止まった知らせ: 「◯分途絶えています」の分が増えても、同じ止まりは1回だけ知らせる', () => {
+  const 記 = G.進み_記録の既定_();
+  const 進 = 分 => ({ 系統: { LP: [], 資料: [{ 名: '図解・挿絵', 状態: '止まった', 文: 'Macからの知らせが' + 分 + '分途絶えています（図解）' }] } });
+  [25, 30, 35, 40].forEach(function (分) { G.止まったを知らせる_('本物社', 進(分), 記); });
+  assert.strictEqual(記.知らせ.length, 1, JSON.stringify(記.知らせ));
+  // 直って、また止まったら知らせる
+  G.止まったを知らせる_('本物社', { 系統: { LP: [], 資料: [] } }, 記);
+  G.止まったを知らせる_('本物社', 進(21), 記);
+  assert.strictEqual(記.知らせ.length, 2);
+});
+
+test('進み: Mac の仕事が3回続けて失敗して止まったら、作っている行を「止まった」に（待ちの行はそのまま）', () => {
+  const 見 = G.見張りの様子_([{ 最後に回った時刻: '2026-09-26T10:28:00+09:00', 仕事: { lp: { 止まった: true }, audio: { 止まった: false }, zukai: { 止まった: true } } }], いま);
+  assert.strictEqual(JSON.stringify(見.止まった仕事), '["lp","zukai"]');
+  const 観 = 全部できた観();
+  観.状態 = 'AI出力待ち'; 観.スライドURL = ''; 観.ファイル.LP = null; 観.ファイル.タイトル案 = null; 観.ファイル.指示LP = true; 観.ファイル.図解済み = null;
+  観.ファイル.音声 = null; 観.ファイル.台本txt = null;
+  観.見張り = 見;
+  const 進 = G.進みを計算_(観, G.進み_記録の既定_(), いま);
+  const 行 = 名 => 進.系統.LP.concat(進.系統.資料).find(x => x.名 === 名);
+  assert.strictEqual(行('LP').状態, '止まった'); assert.ok(/現場相談/.test(行('LP').文));
+  assert.strictEqual(行('音声').状態, '待ち');
+  assert.strictEqual(進.押せる.承認, false);
 });
 
 console.log('\n' + pass + '件 通過');
