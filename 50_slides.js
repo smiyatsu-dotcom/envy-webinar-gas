@@ -11,6 +11,9 @@
  *     重ねて等価な見た目を再現する。行別に「ファイル名@25」で上書き可。
  */
 
+/** 新しい流れで組んでいる間だけ true（generateSlides_ の opt.安全） */
+var 新_画像を合わせる_ = false;
+
 function generateSlides_(kouseiSheetId, opt) {
   const cfg = getConfig_();
   const data = readKouseiSheet_(kouseiSheetId); // rows + ryoukin（単一/松竹梅)
@@ -19,6 +22,7 @@ function generateSlides_(kouseiSheetId, opt) {
   //   実行時間（6分）の上限で途中で止まると、旧を捨てたあとにテンプレのまま（別会社の見本）のデッキが残っていた。
   //   旧の流れ（opt なし）は今までどおり（先に旧を捨ててから組む）
   const 安全 = !!(opt && opt.安全);
+  新_画像を合わせる_ = 安全;   // ★新しい流れのときだけ、画像を枠に合わせて切る・同名は新しいほう（旧の流れは今までどおり）
 
   // 1. サンプルデッキ（108枚）を複製（再生成時、同名の旧スライドはゴミ箱へ移す）
   const outFolder = caseFolder_(cfg, data.name);
@@ -836,7 +840,11 @@ function replaceImages_(slide, def, row, data, zukaiFolder, idx, targets, warnin
       const target = (def.layout === 'cover' || def.layout === 'profile')
         ? (fullbleed || nonFull.sort(function (a, b) { return b.w * b.h - a.w * a.h; })[0])
         : nonFull.sort(function (a, b) { return b.w * b.h - a.w * a.h; })[0];
-      if (target) { try { target.im.replace(file.getBlob()); } catch (e) { warnings.push('No.' + no + ' 図解replace失敗: ' + e); } }
+      // ★true＝枠の比率に合わせて真ん中で切る（手で差し替えた絵の大きさが違っても、引き伸ばして歪ませない。2026-09-26）
+      // ★新しい流れの図解・特徴・工程・特典だけ、枠の比率に合わせて真ん中で切る（手で差し替えた絵の大きさが違っても歪ませない）。
+      //   表紙（サムネイル）・プロフ・事例・モックアップと旧の流れは今までどおり（2026-09-27）
+      const 切る = 新_画像を合わせる_ && /^(図解|特徴|工程|特典)/.test(String(def.img || ''));
+      if (target) { try { target.im.replace(file.getBlob(), 切る); } catch (e) { warnings.push('No.' + no + ' 図解replace失敗: ' + e); } }
     }
   }
 
@@ -922,6 +930,7 @@ function findZukai_(folder, def, row) {
   //   古い案件のフォルダにGIFが残っていても拾わない。
   //   PNGが1枚も無ければ見つからない扱いになり、管理シートF列に「図解未発見」が出る。
   //   黙って動く画像が入るより、見つからないと言われるほうがよい。
+  // ★同じ名前が2枚あるときは、新しいほうを使う（手で差し替えたとき「両方を保持」で2枚並ぶことがある。2026-09-26）
   let exact = null, partial = null;
   const files = folder.getFiles();
   while (files.hasNext()) {
@@ -930,7 +939,11 @@ function findZukai_(folder, def, row) {
     if (mime.indexOf('image/') !== 0) continue;
     if (mime === 'image/gif') continue;
     const nk = normalizeKey_(f.getName());
-    if (!partialOnly && nk === key) { exact = f; break; }
+    if (!partialOnly && nk === key) {
+      if (!新_画像を合わせる_) { exact = f; break; }   // 旧の流れは今までどおり（最初に見つかったもの）
+      if (!exact || f.getLastUpdated().getTime() > exact.getLastUpdated().getTime()) exact = f;
+      continue;
+    }
     if (nk.indexOf(key) !== -1 && !partial) partial = f;
   }
   return exact || partial;
