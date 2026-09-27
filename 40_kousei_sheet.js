@@ -202,10 +202,14 @@ function readCaseJsonTexts_(cfg, projectName) {
   folder = caseFolderIfExists_(cfg, projectName); if (!folder) return null;
   const found = {};
   let stamp = 0;
+  let 作業中 = false;
   const files = folder.getFiles();
   while (files.hasNext()) {
     const f = files.next();
-    const nm = f.getName();
+    const nm = typeof nfc_ === 'function' ? nfc_(f.getName()) : String(f.getName());
+    // ★Mac の資料づくりは、txt を一度書いたあとも自分で検査して書き直す。終わると【指示】資料_ を消すので、
+    //   それが残っているうちは取り込まない（書きかけの台本でスライドと音声を作っていた。2026-09-27の稼働確認）
+    if (nm.indexOf('【指示】資料_') === 0) 作業中 = true;
     if (!/\.txt$/i.test(nm)) continue;
     Object.keys(want).forEach(function (k) {
       if (found[k] || nm.indexOf(want[k]) !== 0) return;
@@ -217,7 +221,7 @@ function readCaseJsonTexts_(cfg, projectName) {
       if (t > stamp) stamp = t;
     });
   }
-  if (!found.daihon || !found.kousei) return null;
+  if (作業中 || !found.daihon || !found.kousei) return null;
   return { daihon: found.daihon, kousei: found.kousei, design: found.design || '', stamp: String(stamp) };
 }
 /** txtから取り込んだときの目印（同じ内容で何度も取り込まないため） */

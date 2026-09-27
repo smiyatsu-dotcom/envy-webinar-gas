@@ -275,7 +275,7 @@ const 開始のID = 'H9newxxxxxxxxxxxxxxxxxxxxxxxxxx';
  * 偽の世界を作る。旧の案件は5件（名前はすべて架空の「過去◯社」）。
  * withNew=true なら、旧の案件のあとに新の流れの案件（テスト社）と【開始】ファイルを足す。
  */
-function 世界(withNew) {
+function 世界(withNew, 付け足し) {
   const env = makeEnv();
   const P = env.props;
   const root = env.makeFolder('【固定】ウェビナー自動生成');
@@ -300,6 +300,7 @@ function 世界(withNew) {
   構成(1, '過去A社_ヒアリングシート');
   const A = OUT.addFolder('過去A社');
   A.addFile('【台本JSON】過去A社.txt', '[{"no":1}]'); A.addFile('【構成テキストJSON】過去A社.txt', '[{"no":1}]');
+  if (付け足し && 付け足し.資料中) A.addFile('【指示】資料_過去A社.txt', '指示');
   行([OLD.h1, '過去A社_ヒアリングシート', 'AI出力待ち', url(1), '', '', 'X']);
   // 旧2: レビュー待ち・B2（承認）ON → スライド生成
   構成(2, '過去B社_ヒアリングシート').sheets['設定'].getRange('B2').setValue(true);
@@ -382,6 +383,12 @@ test('旧の流れ: 新の流れの案件と【開始】が混ざっていても
   const 今 = 旧の分(回す(null, true).log);
   assert.ok(前.length > 20);
   assert.deepStrictEqual(平ら(今), 平ら(前));
+});
+
+test('取り込み: Mac がまだ資料を作っている（【指示】資料_ が残っている）うちは、txt があっても取り込まない', () => {
+  const env = 世界(false, { 資料中: true });
+  const ctx = loadGas(env, null); 差し替え(ctx, env); env.log.length = 0; ctx.main();
+  assert.ok(!env.log.some(e => e[0] === 'import' && e[1] === K(1)), JSON.stringify(env.log.filter(e => e[0] === 'import')));
 });
 
 test('旧の流れ: 見てほしい動きが実際に起きている（取り込み・B2でスライド・B16で音声を消す・B19・B22）', () => {
