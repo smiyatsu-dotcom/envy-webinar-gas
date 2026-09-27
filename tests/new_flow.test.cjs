@@ -507,9 +507,20 @@ test('新の流れ: 全部できたあとパネルの【承認】→ 承認・B2
   assert.ok(!env.log.some(e => e[0] === 'generateSlides'));
   assert.strictEqual(記().直し.find(d => d.ID === 'c3').状態, '止まった');
   assert.ok(Object.values(env.files).some(f => /【知らせ待ち】$/.test(f.parent.path) && /直し（c3）/.test(f.content)));
+  // ★1回の投稿でまとめて頼んだ直し（2026-09-27）：届いている【直すセル】を全部書いて、組み直すのは1回だけ。
+  //   同じセルを続けて直しても（e5 の後 → f6 の前）、受けた順に書くので両方入る。1つが違っても、ほかは入れる
+  N.addFile('【直すセル】動画撮影テスト社_f6.json', JSON.stringify({ ID: 'f6', 対象: 'スライド', 直す: [{ no: 40, 欄: '構成テキスト', 列: 'D', 前: 'まとめ1', 後: 'まとめ2' }], 日時: '2026-09-27T10:00:02+09:00' }));
+  N.addFile('【直すセル】動画撮影テスト社_e5.json', JSON.stringify({ ID: 'e5', 対象: 'スライド', 直す: [{ no: 40, 欄: '構成テキスト', 列: 'D', 前: '後の構成', 後: 'まとめ1' }], 日時: '2026-09-27T10:00:01+09:00' }));
+  N.addFile('【直すセル】動画撮影テスト社_g7.json', JSON.stringify({ ID: 'g7', 対象: 'スライド', 直す: [{ no: 41, 列: 'D', 前: '違う文', 後: 'z' }], 日時: '2026-09-27T10:00:03+09:00' }));
+  run();
+  assert.strictEqual(of.getRange('D2').getValue(), 'まとめ2');
+  assert.strictEqual(env.log.filter(e => e[0] === 'generateSlides' && e[1] === K(9)).length, 1, '組み直しは1回だけ');
+  ['e5', 'f6'].forEach(id => assert.ok(env.log.some(e => e[0] === 'rename' && e[2] === '【済】直すセル_動画撮影テスト社_' + id + '.json'), id));
+  assert.ok(env.log.some(e => e[0] === 'rename' && e[2] === '【止まった】直すセル_動画撮影テスト社_g7.json'));
+  assert.ok(JSON.stringify(記().動き).includes('直し（2件・2か所）'), JSON.stringify(記().動き.slice(-3)));
   // セルは書けたがスライドを組めなかった → 【止まった】直すセル_（ボットが「直せませんでした」と返す）
   env.組めない = true;
-  N.addFile('【直すセル】動画撮影テスト社_d4.json', JSON.stringify({ ID: 'd4', 対象: 'スライド', 直す: [{ no: 40, 欄: '構成テキスト', 列: 'D', 前: '後の構成', 後: 'もっと後の構成' }] }));
+  N.addFile('【直すセル】動画撮影テスト社_d4.json', JSON.stringify({ ID: 'd4', 対象: 'スライド', 直す: [{ no: 40, 欄: '構成テキスト', 列: 'D', 前: 'まとめ2', 後: 'もっと後の構成' }] }));
   run();
   assert.ok(env.log.some(e => e[0] === 'rename' && e[2] === '【止まった】直すセル_動画撮影テスト社_d4.json'), JSON.stringify(env.log.filter(e => e[0] === 'rename')));
   env.組めない = false;
