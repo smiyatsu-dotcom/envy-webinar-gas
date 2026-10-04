@@ -386,12 +386,14 @@ const 旧の印 = ['過去', 'K1kousei', 'K2kousei', 'K3kousei', 'K4kousei', 'K5
 function 旧の分(log) {
   return log.filter(e => { const s = JSON.stringify(e); return 旧の印.some(k => s.indexOf(k) >= 0) && s.indexOf('テスト社') < 0; });
 }
+/** 監視専用inventoryは旧案件の業務書込みではないので、旧版との業務副作用比較から除く。 */
+function 業務の分(log) { return log.filter(e => JSON.stringify(e).indexOf('【状態】資料実物_webinar-gas.json') < 0); }
 
 test('旧の流れ: 変更前（' + BASE + '）と今で、main() の書き込みが1つ残らず同じ', () => {
   const 前 = 回す(BASE, false).log;
   const 今 = 回す(null, false).log;
   assert.ok(前.length > 20, '比べる記録が少なすぎる: ' + 前.length);
-  assert.deepStrictEqual(平ら(今), 平ら(前));
+  assert.deepStrictEqual(平ら(業務の分(今)), 平ら(業務の分(前)));
 });
 
 test('旧の流れ: 新の流れの案件と【開始】が混ざっていても、旧の案件への書き込みは変更前と同じ', () => {

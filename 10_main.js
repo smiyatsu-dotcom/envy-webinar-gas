@@ -61,6 +61,7 @@ function main() {
     try { processStartOrders_(); } catch (e) { Logger.log('★processStartOrders_: ' + e); }
     try { processNewFlow_(); } catch (e) { Logger.log('★processNewFlow_: ' + e); }
   } finally {
+    try { writeMaterialDeliveryEvidence_(); } catch (e) { Logger.log('★資料実物証拠を残せませんでした: ' + e); }
     lock.releaseLock();
   }
 }
