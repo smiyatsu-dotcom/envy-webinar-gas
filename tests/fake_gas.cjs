@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const root = path.join(__dirname, '..');
@@ -150,8 +151,12 @@ function makeEnv() {
   const MimeType = { GOOGLE_SHEETS: 'application/vnd.google-apps.spreadsheet', GOOGLE_DOCS: 'application/vnd.google-apps.document', PLAIN_TEXT: 'text/plain' };
   const Logger = { log: () => {} };
   const ScriptApp = { getService: () => ({ getUrl: () => '' }), getProjectTriggers: () => [] };
+  const Utilities = {
+    DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
+    computeDigest: (_algorithm, text) => [...crypto.createHash('sha256').update(String(text), 'utf8').digest()].map(n => n > 127 ? n - 256 : n)
+  };
 
-  return { log, props, spreadsheets, folders, files, makeSpreadsheet, makeFolder, globals: { SpreadsheetApp, DriveApp, PropertiesService, LockService, MimeType, Logger, ScriptApp } };
+  return { log, props, spreadsheets, folders, files, makeSpreadsheet, makeFolder, globals: { SpreadsheetApp, DriveApp, PropertiesService, LockService, MimeType, Logger, ScriptApp, Utilities } };
 }
 
 /** webinar-gas の .js を読み込む。rev を渡すと、そのコミットの中身で読む（変更前との比べ用） */

@@ -225,13 +225,21 @@ function processDelivery_() {
     try { if (st.getRange('B22').getNote() !== DELIVER_NOTE) st.getRange('B22').setNote(DELIVER_NOTE); } catch (e) { /* 体裁の失敗で止めない */ }
 
     // ★新しい流れ（管理シート H列＝新）は、承認（B2＝「確認して承認」）のあとだけ受け付ける。旧の流れは今までどおり
-    if (新の流れか_(rows[i]) && !新の流れの承認済みか_(String(rows[i][0]), st)) {
+    const 新記 = 新の流れか_(rows[i]) ? 進み_記録を読む_(String(rows[i][0])) : null;
+    let 現在revision = '';
+    if (新の流れか_(rows[i])) {
+      try {
+        const 出力フォルダ = caseFolderIfExists_(cfg, String(projectName));
+        if (出力フォルダ) 現在revision = 成果物revision_(観測する_(cfg, rows[i], 出力フォルダ));
+      } catch (e) { 現在revision = ''; }
+    }
+    if (新の流れか_(rows[i]) && (!現在revision || !新の流れの承認済みか_(String(rows[i][0]), st, 新記, 現在revision))) {
       st.getRange('B23').setValue('まだ承認されていないので、納品フォルダへは入れていません。全部できたら「確認して承認」（操作パネルかB2）をしてから、もう一度押してください');
       continue;
     }
 
     const r = 納品する_(cfg, String(projectName), st);
-    if (新の流れか_(rows[i]) && r.入れた) 進み_納品を記録_(String(rows[i][0]), r.文);
+    if (新の流れか_(rows[i]) && r.入れた) 進み_納品を記録_(String(rows[i][0]), r.文, 現在revision);
   }
 }
 

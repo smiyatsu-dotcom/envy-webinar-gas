@@ -330,11 +330,23 @@ function 新の流れを1件進める_(cfg, row, 一回) {
 
   // (5) 承認: 操作パネルの【承認】◯◯社.json か B2（新の流れでは「確認して承認」）。全部できてからだけ受け付ける
   let 進 = 進みを計算_(観, 記, new Date());
+  if (進.全部できた) {
+    const 現在版 = 進.生成.revision;
+    if (!記.生成 || 記.生成.revision !== 現在版) {
+      記.生成 = { revision: 現在版, 日時: 日時の文字_(new Date()) };
+      if (記.承認 && 記.承認.済) {
+        記.承認 = { 済: false, 人: '', 日時: '', revision: null };
+        if (st) st.getRange('B2').setValue(false);
+        動きを足す_(記, '成果物の版が変わったので、承認を外しました');
+      }
+      進 = 進みを計算_(観, 記, new Date());
+    }
+  }
   if (st && 観.承認ファイル) {
     const 頼み = 観.承認ファイル.中身 || {};
     const 人 = String(頼み['人'] || 頼み['メール'] || '操作パネル');
     if (進.押せる.承認) {
-      記.承認 = { 済: true, 人: 人, 日時: 日時の文字_(new Date()) };
+      記.承認 = { 済: true, 人: 人, 日時: 日時の文字_(new Date()), revision: 進.生成.revision };
       st.getRange('B2').setValue(true);
       動きを足す_(記, '確認して承認しました（' + 人 + '）');
       st.getRange('B3').setValue('承認しました（' + 人 + '）。操作パネルの「納品フォルダへ入れる」で納品できます');
@@ -348,7 +360,7 @@ function 新の流れを1件進める_(cfg, row, 一回) {
     const b2 = st.getRange('B2').getValue() === true;
     if (b2 && !(記.承認 && 記.承認.済)) {
       if (進.押せる.承認) {
-        記.承認 = { 済: true, 人: '構成シートのB2', 日時: 日時の文字_(new Date()) };
+        記.承認 = { 済: true, 人: '構成シートのB2', 日時: 日時の文字_(new Date()), revision: 進.生成.revision };
         動きを足す_(記, '確認して承認しました（構成シートのB2）');
         st.getRange('B3').setValue('承認しました。操作パネルの「納品フォルダへ入れる」で納品できます');
       } else {
@@ -365,9 +377,9 @@ function 新の流れを1件進める_(cfg, row, 一回) {
   if (st && 観.納品ファイル) {
     const 頼み = 観.納品ファイル.中身 || {};
     const 人 = String(頼み['人'] || 頼み['メール'] || '操作パネル');
-    if (新の流れの承認済みか_(hearingId, st, 記)) {
+    if (新の流れの承認済みか_(hearingId, st, 記, 進.生成.revision)) {
       const r = 納品する_(cfg, projectName, st);   // 70_delivery.js（B22 と同じ中身）
-      if (r.入れた) { 記.納品 = { 済: true, 日時: 日時の文字_(new Date()) }; 動きを足す_(記, '納品フォルダへ入れました（' + 人 + '）'); }
+      if (r.入れた) { 記.納品 = { 済: true, 日時: 日時の文字_(new Date()), revision: 進.生成.revision }; 動きを足す_(記, '納品フォルダへ入れました（' + 人 + '）'); }
       else 動きを足す_(記, '納品フォルダへ入れられませんでした：' + String(r.文).slice(0, 80));
       // ★納品版に手直しがあって入れ直さなかったもの。「入れました」だけだと気づけない（2026-09-27）
       if (r.残した && r.残した.length) {
@@ -427,9 +439,10 @@ function 済にする_(folder, f, 新しい名前) {
  * 新の流れの案件が承認済みか。★B2 だけでは見ない（B2 は誰でも押せ、全部できる前に押されたものは
  * processNewFlow_ があとで外すため）。覚え（承認.済）と B2 の両方がそろっているときだけ承認済み。
  */
-function 新の流れの承認済みか_(hearingId, st, 記) {
+function 新の流れの承認済みか_(hearingId, st, 記, 現在revision) {
   const r = 記 || 進み_記録を読む_(String(hearingId));
-  return !!(r.承認 && r.承認.済) && st.getRange('B2').getValue() === true;
+  const current = 現在revision || (r.生成 && r.生成.revision) || '';
+  return !!(r.承認 && r.承認.済 && r.承認.revision && r.承認.revision === current) && st.getRange('B2').getValue() === true;
 }
 
 /**

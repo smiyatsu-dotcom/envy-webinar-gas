@@ -160,11 +160,11 @@ test('進み: 全部できたら「確認して承認」が押せる。承認の
   assert.strictEqual(進.押せる.承認, true);
   assert.strictEqual(進.押せる.納品, false);
   assert.strictEqual(進.系統.資料.find(x => x.名 === 'スライド').url, 'https://slide');
-  記.承認 = { 済: true, 人: '福田真里（PM）', 日時: '2026-09-26T10:40:00+09:00' };
+  記.承認 = { 済: true, 人: '福田真里（PM）', 日時: '2026-09-26T10:40:00+09:00', revision: 進.生成.revision };
   進 = G.進みを計算_(観, 記, いま);
   assert.strictEqual(進.押せる.承認, false);
   assert.strictEqual(進.押せる.納品, true);
-  記.納品 = { 済: true, 日時: '…' };
+  記.納品 = { 済: true, 日時: '…', revision: 進.生成.revision };
   assert.strictEqual(G.進みを計算_(観, 記, いま).いまここ.文, '納品しました');
 });
 
@@ -259,6 +259,22 @@ test('直しをまとめる_: タイトルの直しは台本のセルを書き�
 
 test('日時の文字_: 日本時間の +09:00 の形', () => {
   assert.strictEqual(G.日時の文字_(new Date('2026-09-26T01:15:00Z')), '2026-09-26T10:15:00+09:00');
+});
+
+test('成果物revision_: 同じ観測は同じ64桁、出力の更新で変わる', () => {
+  const 観 = 全部できた観();
+  const a = G.成果物revision_(観);
+  const b = G.成果物revision_(JSON.parse(JSON.stringify(観)));
+  assert.match(a, /^[a-f0-9]{64}$/); assert.strictEqual(a, b);
+  観.ファイル.音声.日時 = '2026-09-26T11:00:00+09:00';
+  assert.notStrictEqual(G.成果物revision_(観), a);
+});
+
+test('承認済みか_: 過去のrevision無しを推測補完せず、同じ生成版だけ通す', () => {
+  const st = { getRange: () => ({ getValue: () => true }) };
+  assert.strictEqual(G.新の流れの承認済みか_('id', st, { 生成: { revision: 'a'.repeat(64) }, 承認: { 済: true } }), false);
+  assert.strictEqual(G.新の流れの承認済みか_('id', st, { 生成: { revision: 'a'.repeat(64) }, 承認: { 済: true, revision: 'b'.repeat(64) } }), false);
+  assert.strictEqual(G.新の流れの承認済みか_('id', st, { 生成: { revision: 'a'.repeat(64) }, 承認: { 済: true, revision: 'a'.repeat(64) } }), true);
 });
 
 // ============================================================
@@ -464,12 +480,15 @@ test('新の流れ: 全部できたあとパネルの【承認】→ 承認・B2
   const st = env.spreadsheets[K(9)].sheets['設定'];
   const 記 = () => JSON.parse(env.props['SHINKO_H8newxxxxxxxxxxxxxxxxxxxxxxxxxxx']);
   assert.strictEqual(記().承認.済, true, JSON.stringify(記().動き));
+  assert.match(記().生成.revision, /^[a-f0-9]{64}$/);
+  assert.strictEqual(記().承認.revision, 記().生成.revision);
   assert.strictEqual(st.getRange('B2').getValue(), true);
   assert.ok(env.log.some(e => e[0] === 'rename' && e[2] === '【済】承認_動画撮影テスト社.json'));
   // 納品
   N.addFile('【納品指示】動画撮影テスト社.json', JSON.stringify({ 人: '福田真里（PM）' }));
   run();
   assert.strictEqual(記().納品.済, true, JSON.stringify(記().動き));
+  assert.strictEqual(記().納品.revision, 記().承認.revision);
   // ふつうに入ったときは「入れられませんでした」も★も出ない
   assert.ok(!JSON.stringify(記().動き).includes('入れられませんでした'), JSON.stringify(記().動き));
   assert.ok(!JSON.stringify(記().動き).includes('入れ直していません'));

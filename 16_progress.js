@@ -46,7 +46,7 @@ function 分たった_(文字, いま) {
 // 覚え（スクリプトプロパティ）
 // ============================================================
 function 進み_記録の既定_() {
-  return { 承認: { 済: false, 人: '', 日時: '' }, 納品: { 済: false, 日時: '' }, 直し: [], 動き: [], 組んだ図解: '', 取り込み済み: false, 全部できた: false, 知らせた: {}, 知らせ: [], 知らせの番号: 0, セル済: {} };
+  return { 生成: null, 承認: { 済: false, 人: '', 日時: '', revision: null }, 納品: { 済: false, 日時: '', revision: null }, 直し: [], 動き: [], 組んだ図解: '', 取り込み済み: false, 全部できた: false, 知らせた: {}, 知らせ: [], 知らせの番号: 0, セル済: {} };
 }
 function 進み_記録を読む_(hearingId) {
   const 既 = 進み_記録の既定_();
@@ -80,6 +80,19 @@ function 動きを足す_(記, 文, いま) {
 // ============================================================
 function JSONを読む_(f) {
   try { return JSON.parse(f.getBlob().getDataAsString('UTF-8')); } catch (e) { return null; }   // 書きかけは次の回
+}
+
+/** 生成物の観測値から固定長revisionを作る。過去の承認には後付けしない。 */
+function 成果物revision_(観) {
+  const F = (観 && 観.ファイル) || {};
+  const 印 = function (x) { return x ? { url: String(x.url || ''), 日時: String(x.日時 || x.更新 || '') } : null; };
+  const 材料 = {
+    タイトル案: 印(F.タイトル案), LP: 印(F.LP), サムネイル: 印(F.サムネイル), 台本: 印(F.台本txt), 音声: 印(F.音声),
+    図解: F.図解済み ? { 日時: String(F.図解済み.日時 || ''), 更新: String(F.図解済み.更新 || ''), 画像の更新: String(F.画像の更新 || '') } : null,
+    スライド: { url: String((観 && 観.スライドURL) || ''), 日時: String((観 && 観.スライド更新) || '') }
+  };
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(材料), Utilities.Charset.UTF_8);
+  return digest.map(function (b) { const n = b < 0 ? b + 256 : b; return ('0' + n.toString(16)).slice(-2); }).join('');
 }
 
 /**
@@ -180,6 +193,7 @@ function 観測する_(cfg, row, folder) {
   観.状態 = String(row[2] || '');
   観.メッセージ = String(row[5] || '');
   観.スライドURL = String(row[4] || '');
+  try { if (観.スライドURL) 観.スライド更新 = 日時の文字_(DriveApp.getFileById(idFromUrl_(観.スライドURL)).getLastUpdated()); } catch (e) { 観.スライド更新 = ''; }
   観.構成シートURL = String(row[3] || '');
   return 観;
 }
@@ -499,8 +513,9 @@ function 進みを計算_(観, 記, いま) {
     }, 0);
   };
   const あと分 = Math.max(系統の残り('LP'), 系統の残り('資料'));
-  const 承認済 = !!(記.承認 && 記.承認.済);
-  const 納品済 = !!(記.納品 && 記.納品.済);
+  const 出力revision = 成果物revision_(観);
+  const 承認済 = !!(記.承認 && 記.承認.済 && 記.承認.revision && 記.承認.revision === 出力revision);
+  const 納品済 = !!(記.納品 && 記.納品.済 && 記.納品.revision && 記.納品.revision === 出力revision);
 
   let いまここ;
   // ★作れなかった図解が残っているうちは承認しない。制作担当が手で上書きすると消える（2026-09-27）
@@ -537,8 +552,9 @@ function 進みを計算_(観, 記, いま) {
     系統: 系統,
     足りない素材: 記.足りない素材 || [],
     直し: 直し,
-    承認: 記.承認 || { 済: false, 人: '', 日時: '' },
-    納品: 記.納品 || { 済: false, 日時: '' },
+    生成: { revision: 出力revision },
+    承認: 記.承認 || { 済: false, 人: '', 日時: '', revision: null },
+    納品: 記.納品 || { 済: false, 日時: '', revision: null },
     動き: (記.動き || []).slice(-動き_最大),
     知らせ: (記.知らせ || []).slice(),   // 記録として見せるだけ（送るのは【知らせ待ち】経由：テストは Mac、社内は operations の GAS）
     構成シート: 観.構成シートURL || '',
@@ -562,9 +578,9 @@ function 進みを書く_(folder, 進) {
 
 
 /** 納品できたら覚える（B22 からもパネルからも） */
-function 進み_納品を記録_(hearingId, 文) {
+function 進み_納品を記録_(hearingId, 文, revision) {
   進み_記録を変える_(hearingId, function (記) {
-    記.納品 = { 済: true, 日時: 日時の文字_(new Date()) };
+    記.納品 = { 済: true, 日時: 日時の文字_(new Date()), revision: revision || null };
     動きを足す_(記, '納品フォルダへ入れました（' + String(文 || '').slice(0, 60) + '）');
   });
 }
