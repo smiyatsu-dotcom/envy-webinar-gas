@@ -187,6 +187,11 @@ function 新の流れを1件進める_(cfg, row, 一回) {
   const folder = caseFolderIfExists_(cfg, projectName);
   if (!folder) return;
   if (st) 新の流れの設定タブを整える_(st, folder.getId());
+  // PM相談室の抽象指摘は、案件→管理行→ヒアリングIDで解決した原本と
+  // 出力物の両方がそろう時だけ提案する。失敗しても生成本体は止めず、
+  // Bridge が原本未特定として質問へ戻す。
+  try { 相談室_原本スナップショットを書く_(folder, projectName, hearingId); }
+  catch (e) { Logger.log('相談室用ヒアリング原本を読めません: ' + e); }
 
   let 観 = 観測する_(cfg, row, folder);
   観.見張り = 一回.見張り || null;

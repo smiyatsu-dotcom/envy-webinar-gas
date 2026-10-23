@@ -1,0 +1,30 @@
+const assert = require('assert');
+const { makeEnv, loadGas } = require('./fake_gas.cjs');
+
+const env = makeEnv();
+const root = env.makeFolder('root', null, 'ROOT');
+const out = root.addFolder('【出力】生成物', 'OUT');
+const caseFolder = out.addFolder('架空テスト社', 'CASE');
+const hearingId = 'Hearing012345678901234567890123';
+const ss = env.makeSpreadsheet(hearingId, ['【オファー記入用】', '【問題教育の記入用】']);
+ss.sheets['【オファー記入用】'].getRange(1, 1, 2, 2).setValues([['会社名', '架空テスト社'], ['課題', '説明が長い']]);
+ss.sheets['【問題教育の記入用】'].getRange('A1').setValue('原本の根拠');
+const G = loadGas(env);
+
+const first = G.相談室_原本スナップショットを書く_(caseFolder, '架空テスト社', hearingId);
+assert.equal(first.caseName, '架空テスト社');
+assert.equal(first.hearingId, hearingId);
+assert.ok(first.text.includes('説明が長い'));
+const file = caseFolder.getFilesByName('【相談室】ヒアリング原本.json').next();
+const saved = JSON.parse(file.getBlob().getDataAsString());
+assert.equal(saved.source, 'hearing-sheet');
+assert.equal(saved.revision, first.revision);
+const creates = env.log.filter(x => x[0] === 'create' && x[1].endsWith('【相談室】ヒアリング原本.json')).length;
+G.相談室_原本スナップショットを書く_(caseFolder, '架空テスト社', hearingId);
+assert.equal(env.log.filter(x => x[0] === 'create' && x[1].endsWith('【相談室】ヒアリング原本.json')).length, creates);
+ss.sheets['【オファー記入用】'].getRange('B2').setValue('更新された原本');
+const changed = G.相談室_原本スナップショットを書く_(caseFolder, '架空テスト社', hearingId);
+assert.notEqual(changed.revision, first.revision);
+assert.ok(JSON.parse(file.getBlob().getDataAsString()).text.includes('更新された原本'));
+assert.throws(() => G.相談室_原本スナップショットを書く_(caseFolder, '架空テスト社', 'not-an-id'), /ヒアリングID/);
+console.log('ok consultation hearing snapshot');
