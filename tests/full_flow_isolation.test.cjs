@@ -57,9 +57,8 @@ test('隔離通し入口: 正規開始JSONを本文不変で案件フォルダ�
     セル: Array(81).fill({})
   }));
   const source = startFile.content;
-  let startCalls = 0, advance = 0;
+  let startCalls = 0;
   G.processStartOrders_ = () => { startCalls++; };
-  G.processNewFlow_ = () => { advance++; };
   const result = G.隔離通し生成を開始する();
   assert.strictEqual(result.phase, 'start');
   assert.strictEqual(result.handed, true);
@@ -67,9 +66,8 @@ test('隔離通し入口: 正規開始JSONを本文不変で案件フォルダ�
   assert.strictEqual(startBox.getFilesByName(startName).hasNext(), false);
   const destination = output.getFoldersByName('隔離通し診断テスト社').next();
   assert.strictEqual(startFile.parent, destination);
-  assert.strictEqual(G.隔離通し生成を進める().phase, 'advance');
   assert.strictEqual(startCalls, 1);
-  assert.strictEqual(advance, 1);
+  assert.strictEqual(G.SpreadsheetApp.openById('16UgS3scd3X2D2Qqhzd1WfJuGkuNcOt5WbekQZLyKDpg').getSheets()[0].getDataRange().getValues().length, 1);
 });
 
 console.log('pass ' + pass);

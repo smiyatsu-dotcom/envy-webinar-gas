@@ -101,13 +101,26 @@ function 隔離通し_正規開始を引き渡す_(cfg) {
   var startBox = DriveApp.getFolderById(cfg.ISOLATION_START_BOX_ID);
   var startName = '【開始】' + 隔離通し_生成_案件名 + '.json';
   var start = 隔離通し_同名ファイル1件_(startBox, startName, '隔離通し開始JSON');
-  if (!start) return { handed: false, reason: '開始箱に未処理の正規開始JSONがありません' };
+  var generatedRoot = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+  if (!start) {
+    // 前回は台帳の旧行によって登録だけがskipされた。新成果物が無いときだけ、
+    // 同じ正規JSONを本文不変で開始状態へ戻して固定fixtureを再初期化できる。
+    var pending = generatedRoot.getFoldersByName(隔離通し_生成_案件名);
+    if (!pending.hasNext()) return { handed: false, reason: '開始箱に未処理の正規開始JSONがありません' };
+    var fresh = pending.next();
+    if (pending.hasNext()) throw new Error('隔離通し生成物の案件フォルダが複数あります');
+    var done = 隔離通し_同名ファイル1件_(fresh, '【済】開始_' + 隔離通し_生成_案件名 + '.json', '隔離通し済開始JSON');
+    var files = fresh.getFiles(); var count = 0;
+    while (files.hasNext()) { files.next(); count++; }
+    if (!done || count !== 1) throw new Error('隔離通しの新案件フォルダは未生成の開始JSONだけでなければ再初期化できません');
+    done.setName(startName);
+    start = done;
+  }
   var payload = 開始を読む_(start.getBlob().getDataAsString('UTF-8'));
   if (payload.案件名 !== 隔離通し_生成_案件名 || payload.ヒアリングシートID !== 隔離通し_生成_ヒアリングID) {
     throw new Error('隔離通し開始JSONの案件またはヒアリングIDが固定fixtureと一致しません');
   }
 
-  var generatedRoot = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
   var old = generatedRoot.getFoldersByName(隔離通し_生成_案件名);
   if (old.hasNext()) {
     var prior = old.next();
@@ -124,12 +137,25 @@ function 隔離通し_正規開始を引き渡す_(cfg) {
   return { handed: true, startFileId: start.getId(), outputFolderId: destination.getId(), outputUrl: destination.getUrl() };
 }
 
+function 隔離通し_台帳を新規登録前に戻す_(cfg) {
+  var sh = SpreadsheetApp.openById(cfg.MGMT_SHEET_ID).getSheets()[0];
+  var rows = sh.getDataRange().getValues();
+  var hits = [];
+  rows.slice(1).forEach(function (row, index) {
+    if (String(row[0] || '').trim() === 隔離通し_生成_ヒアリングID && String(row[1] || '').trim() === 隔離通し_生成_案件名 + '_ヒアリングシート') hits.push(index + 2);
+  });
+  if (hits.length !== 1) throw new Error('固定隔離案件の旧台帳行を一意に確認できません');
+  // 専用台帳の固定一行だけを外し、通常 processStartOrders_ が構成Sheet・URL管理・指示Docを作り直す。
+  sh.deleteRow(hits[0]);
+}
+
 /** 固定fixtureの正規開始JSONを既存登録処理へ安全に引き渡す。 */
 function 隔離通し生成を開始する() {
   var cfg = 隔離通し_生成設定を作る_();
   return withIsolationTestConfig_(cfg, function () {
     var handoff = 隔離通し_正規開始を引き渡す_(cfg);
     if (!handoff.handed) return Object.assign({ ok: true, phase: 'start' }, handoff);
+    隔離通し_台帳を新規登録前に戻す_(cfg);
     processStartOrders_();
     return Object.assign({ ok: true, phase: 'start', caseName: 隔離通し_生成_案件名, outputRootId: cfg.OUTPUT_FOLDER_ID, managementSheetId: cfg.MGMT_SHEET_ID }, handoff);
   });
