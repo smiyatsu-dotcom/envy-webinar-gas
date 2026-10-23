@@ -311,6 +311,18 @@ function 世界(withNew, 付け足し) {
   };
   const 行 = (vals) => mg.appendRow(vals);
   const url = (n) => 'https://docs.google.com/spreadsheets/d/' + K(n) + '/edit';
+  // 納品成功系は新仕様どおり、ヒアリングにFAQ 3組が確定している形を作る。
+  // 欠損時の拒否は qa_cue_gate.test.cjs で別途検証し、ここで旧4点例外を復活させない。
+  const 完成FAQ = (id) => {
+    const hs = env.makeSpreadsheet(id, ['【オファー記入用】']);
+    hs.sheets['【オファー記入用】'].getRange(1, 1, 7, 4).setValues([
+      ['⒌ よくある質問（Q&A）', '', '', ''],
+      ['', '', 'よくある質問：', '質問1'], ['', '', '記入欄：', '回答1'],
+      ['', '', 'よくある質問：', '質問2'], ['', '', '記入欄：', '回答2'],
+      ['', '', 'よくある質問：', '質問3'], ['', '', '記入欄：', '回答3']
+    ]);
+    return hs;
+  };
 
   // 旧1: AI出力待ち。案件フォルダに台本・構成のtxt → 自動取り込み
   構成(1, '過去A社_ヒアリングシート');
@@ -324,6 +336,7 @@ function 世界(withNew, 付け足し) {
   行([OLD.h2, '過去B社_ヒアリングシート', 'レビュー待ち', url(2), '', '', 'X']);
   // 旧3: 完了・B16（作り直し）ON・B22（納品）ON。音声あり
   const s3 = 構成(3, '過去C社_ヒアリングシート').sheets['設定'];
+  完成FAQ(OLD.h3);
   s3.getRange('A16').setValue('直したら必ずここ｜セルや素材の直しをスライドへ反映する'); s3.getRange('B16').setValue(true);
   s3.getRange('A21').setValue('― 検品が終わったら納品する ―'); s3.getRange('A22').setValue('4点'); s3.getRange('B22').setValue(true);
   const C = OUT.addFolder('過去C社');
@@ -343,6 +356,7 @@ function 世界(withNew, 付け足し) {
   if (withNew) {
     // 新1: レビュー待ち・B2 を誰かが先に押した・B22 も押した（承認前なので納品しない）・図解済みあり
     const n1 = 構成(9, '動画撮影テスト社_ヒアリングシート').sheets['設定'];
+    完成FAQ('H8newxxxxxxxxxxxxxxxxxxxxxxxxxxx');
     n1.getRange('B2').setValue(true); n1.getRange('A21').setValue('―'); n1.getRange('A22').setValue('4点'); n1.getRange('B22').setValue(true);
     const N = OUT.addFolder('動画撮影テスト社');
     N.addFile('【保留】サムネ指示_動画撮影テスト社.txt', 'x'); N.addFile('【タイトル案】動画撮影テスト社.txt', 't');
@@ -360,6 +374,19 @@ function 差し替え(ctx, env) {
   ctx.generateSlides_ = (kid) => { env.log.push(['generateSlides', kid]); if (env.組めない) throw new Error('組めない（テスト）'); return { pres: { getUrl: () => 'https://slide/new/' + kid }, warnings: ['w'] }; };
   ctx.importAiOutput_ = (ss, texts) => { env.log.push(['import', ss.getId(), texts ? 'txt' : 'paste']); return ['警告x']; };
   ctx.DocumentApp = { openById: () => ({ getBody: () => ({ getText: () => 'サブタイトル\nメインタイトル' }) }), create: () => { throw new Error('使わない'); } };
+  // DocumentApp自体はこの巨大なフロー試験の対象外なので、生成物の置き方だけを偽装する。
+  // ただしFAQの3組必須判定は本物の関数を通す。欠損拒否は qa_cue_gate.test.cjs が実物のsyncQaCue_で検証する。
+  ctx.syncQaCue_ = (_cfg, pname) => {
+    const rows = env.spreadsheets.MGMTxxxxxxxxxxxxxxxxxxxxxxxxxxxx.sheets['管理'].getDataRange().getValues();
+    const row = rows.slice(1).find(r => String(r[1]) === String(pname));
+    const hs = row && env.spreadsheets[row[0]], offer = hs && hs.getSheetByName('【オファー記入用】');
+    if (!offer) throw new Error('ヒアリングシートにオファー記入用タブがありません');
+    ctx.qaCueRequireCompleteFaq_(offer.getDataRange().getValues());
+    const folder = ctx.caseFolderIfExists_(_cfg, pname), company = ctx.caseCompany_(pname);
+    const docName = ctx.qaCueFileName_(company), pdfName = ctx.qaCuePdfFileName_(company);
+    if (!folder.getFilesByName(docName).hasNext()) folder.addFile(docName, 'FAQ 3組', 'application/vnd.google-apps.document');
+    if (!folder.getFilesByName(pdfName).hasNext()) folder.addFile(pdfName, 'FAQ 3組', 'application/pdf');
+  };
   ctx.createPromptDoc_ = (pname, hid) => { env.log.push(['createPromptDoc', pname, hid]); return { getUrl: () => 'https://doc/' + hid }; };
   ctx.createKouseiScaffold_ = (pname, hid) => {
     env.log.push(['createKouseiScaffold', pname, hid]);
@@ -390,7 +417,7 @@ function 旧の分(log) {
 function 業務の分(log) { return log.filter(e => JSON.stringify(e).indexOf('【状態】資料実物_webinar-gas.json') < 0); }
 /** 今回承認された5点納品の表示差だけを旧基準へ正規化する。業務処理の他差分は比較で検出する。 */
 function 五点納品を旧基準へ_(log) {
-  return 業務の分(log).map(e => {
+  return 業務の分(log).filter(e => !(e[0] === 'copy' && /【Q&Aカンペ】/.test(JSON.stringify(e)))).map(e => {
     const x = 平ら(e), s = JSON.stringify(x);
     if (s.indexOf('5点を【納品】へコピー') >= 0) x[3][1][0] = '4点を【納品】へコピー（チェックすると実行）';
     if (s.indexOf('Q&Aカンペ') >= 0 && x[0] === 'set' && x[2] === 'B23') x[3] = String(x[3]).replace(/・Q&Aカンペ(?:PDF)?(?:\([^)]*\))?/g, '');
