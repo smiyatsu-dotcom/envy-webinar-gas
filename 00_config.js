@@ -280,7 +280,7 @@ function rowDefs_() {
   d(94, T.OFFER, '', '', 'REF', '', 4, 'GEN', L.IDEAL, null);
   d(95, T.OFFER, '価値ある？→ 取り消し線', '', 'FIX', 'No.92の金額に赤の取り消し線を引く。', 0, 'GEN', L.STRIKE, null);
   d(96, T.OFFER, '定価', '', 'GEN', '', 0, 'GEN', L.PRICE, null);
-  d(97, T.OFFER, 'Zoom終了までなら', '', 'EMPTY', '', 0, 'FIX', L.S_ZOOM, null);
+  d(97, T.OFFER, 'ウェビナー終了までなら', '', 'EMPTY', '', 0, 'FIX', L.S_ZOOM, null);
   d(98, T.OFFER, '特典⒈', '', 'GEN', '', 0, 'GEN', L.DIAGRAM40, '特典①');
   d(99, T.OFFER, '特典⒉', '', 'GEN', '', 0, 'GEN', L.DIAGRAM40, '特典②');
   d(100, T.OFFER, '理想③', '', 'GEN', '', 0, 'GEN', L.IDEAL, null);

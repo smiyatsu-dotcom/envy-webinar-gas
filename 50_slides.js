@@ -618,7 +618,7 @@ function fillPrice_(slide, def, row, data, parts, warnings) {
     const badge = els.filter(function (o) { return o.t && o.t.indexOf('OFF') >= 0; })[0];
     if (badge && parts[0]) {
       const bt = badge.sh.getText();
-      bt.setText('Zoom終了までなら…\n' + parts[0]);
+      bt.setText('ウェビナー終了までなら…\n' + parts[0]);
       try { const ps = bt.getParagraphs(); if (ps[1]) ps[1].getRange().getTextStyle().setFontSize(35).setBold(true); } catch (e) { }
       fitBoxText_(badge.sh);
     }
