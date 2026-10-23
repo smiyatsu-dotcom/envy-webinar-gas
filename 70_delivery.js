@@ -36,7 +36,7 @@ function ensureDeliverCells_(st) {
     if (String(st.getRange('A22').getValue() || '').trim() !== '') return;
     st.getRange('A21:A23').setValues([
       ['― 検品が終わったら納品する ―'],
-      ['4点を【納品】へコピー（チェックすると実行）'],
+      ['5点を【納品】へコピー（チェックすると実行）'],
       ['結果（システムが書きます）']
     ]);
     st.getRange('A21').setFontWeight('bold').setBackground('#efefef');
@@ -49,7 +49,7 @@ function ensureDeliverCells_(st) {
 
 /** B22のメモ。★動きを変えたらここを直す（押したときに古いメモを書き替える。→ processDelivery_） */
 const DELIVER_NOTE =
-  'スライド・音声mp3・サムネイル・LPの4点を、【納品】→ 会社名フォルダへコピーします。\n' +
+  'スライド・音声mp3・サムネイル・LP・Q&Aカンペ（Google Doc・PDF）の5点を、【納品】→ 会社名フォルダへコピーします。\n' +
   'フォルダは案件開始のときに自動で作られています。無いときはエラーになります。\n' +
   '前回この処理が入れたままの納品版は、ゴミ箱へ移して入れ直します（30日以内なら復元可）。\n' +
   '★納品版があとから手で直されていたら（お客様の編集も含む）、上書きせずに止めます。\n' +
@@ -278,6 +278,8 @@ function 納品する_(cfg, projectName, st) {
       }
     };
 
+    try { syncQaCue_(cfg, String(projectName)); } catch (e) { miss.push('Q&Aカンペ(' + e + ')'); }
+
     // ① スライド / ② 音声 / ③ LP … 案件フォルダから
     // ★納品フォルダのスライドは、ウェビナータイトル名で入れる（2026-09-25・宮津さん。1-2・3-3の表と同じ）。
     //   タイトルが読めないときだけ、これまでの「【スライド】◯◯」の名前で入れる
@@ -291,6 +293,14 @@ function 納品する_(cfg, projectName, st) {
       try { put(it.next(), pair[2] || pair[0], pair[1], pair[3]); }
       catch (e) { miss.push(pair[1] + '(' + e + ')'); }
     });
+    try {
+      const cue = filesByName_(src, qaCueFileName_(company));
+      if (!cue.hasNext()) miss.push('Q&Aカンペ');
+      else put(cue.next(), qaCueFileName_(company), 'Q&Aカンペ');
+      const pdf = filesByName_(src, qaCuePdfFileName_(company));
+      if (!pdf.hasNext()) miss.push('Q&AカンペPDF');
+      else put(pdf.next(), qaCuePdfFileName_(company), 'Q&AカンペPDF');
+    } catch (e) { miss.push('Q&Aカンペ(' + e + ')'); }
 
     // ④ サムネイル … 【素材】投影資料 の会社フォルダから。名前を付け替えて入れる
     try {

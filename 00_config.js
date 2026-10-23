@@ -53,7 +53,7 @@ function designTargets_() {
 const QA_NO = 104.5;
 
 /** 斜線（該当なし）でスキップ可能な行 → スキップ時にテンプレへ入れる文言 */
-const SKIP_ROWS = { 99: '特典②', 104: '分割払いも可能です。\n24回払いなら\n◯万円／月', '104.5': 'よくある質問' };
+const SKIP_ROWS = { 99: '特典②', 104: '分割払いも可能です。\n24回払いなら\n◯万円／月' };
 
 /**
  * 不透明度ルール（サンプル1実測・単位%＝画像の表示濃度）
@@ -288,7 +288,6 @@ function rowDefs_() {
   d(102, T.OFFER, '値引き後の金額', '', 'GEN', '', 0, 'GEN', L.PRICE, null);
   d(103, T.OFFER, 'なぜこんな価格で？', '', 'GEN', '', 0, 'GEN', L.RINEN, null);
   d(104, T.OFFER, '分割払いも可', '', 'GEN', '', 0, 'GEN', L.TEXT55, null);
-  d(QA_NO, T.OFFER, 'よくある質問（Q&A）', '', 'GEN', '', 0, 'GEN', L.QA, null); // ★104の後ろ・105の前（→ QA_NO）
   d(105, T.OFFER, 'BYAF法', '', 'EMPTY', '', 0, 'FIX', L.S_BYAF, null);
   d(106, T.OFFER, '御礼', '', 'EMPTY', '', 0, 'FIX', L.S_OREI, null);
   return R;

@@ -49,42 +49,32 @@ const G = load();
 // ============================================================
 // 1. 構成（行定義）: 既存の番号と並びが1つも変わっていない
 // ============================================================
-test('行定義: 1〜106はそのまま・104.5が104と105の間に1行だけ', () => {
+test('行定義: 1〜106だけ。Q&Aはスライド行に入れない', () => {
   const nos = G.rowDefs_().map(r => r.no);
-  const ints = nos.filter(n => n !== 104.5);
-  assert.deepStrictEqual(Array.from(ints), Array.from({ length: 106 }, (_, i) => i + 1));
-  assert.strictEqual(nos.length, 107);
-  assert.strictEqual(nos.indexOf(104.5), nos.indexOf(104) + 1);
-  assert.strictEqual(nos.indexOf(105), nos.indexOf(104.5) + 1);
-  const def = G.rowDefs_().find(r => r.no === 104.5);
-  assert.strictEqual(def.tab, 'オファー');
-  assert.strictEqual(def.km, 'GEN'); assert.strictEqual(def.dm, 'GEN');
+  assert.deepStrictEqual(Array.from(nos), Array.from({ length: 106 }, (_, i) => i + 1));
+  assert.ok(!nos.includes(104.5));
 });
 
-test('AIの生成対象: 台本・構成テキストとも 104.5 が入る（104の後ろ）', () => {
+test('AIの生成対象: Q&Aを資料・台本に入れない', () => {
   const gen = G.daihonGenRows_();
-  assert.ok(gen.partB.indexOf(104.5) === gen.partB.indexOf(104) + 1);
+  assert.ok(!gen.partB.includes(104.5));
   const k = G.kouseiGenRows_();
-  assert.ok(k.indexOf(104.5) === k.indexOf(104) + 1);
-  assert.ok(G.kouseiSpec_()[104.5]);
+  assert.ok(!k.includes(104.5));
 });
 
-test('SKIP_ROWS: 104.5 は数値でも引ける', () => {
-  assert.ok(G.SKIP_ROWS[104.5]);
-  assert.ok(G.isSkipRow_({ no: 104.5 }, { kousei: '' }));
-  assert.ok(G.isSkipRow_({ no: 104.5 }, { kousei: '（斜線）' }));
-  assert.ok(!G.isSkipRow_({ no: 104.5 }, { kousei: 'Q. 何？\nA. こう' }));
+test('SKIP_ROWS: Q&Aをスライド用スキップ対象にしない', () => {
+  assert.ok(!G.SKIP_ROWS[104.5]);
 });
 
 // ============================================================
 // 2. 取り込み: 104.5 が無くても止まらない（空で補完）
 // ============================================================
-test('取り込み: AIが104.5を出さなくても欠落エラーにならない', () => {
+test('取り込み: Q&A行なしでも通常スライドを取り込める', () => {
   const nos = G.kouseiGenRows_();
   const rows = nos.filter(n => n !== 104.5 && n !== 99 && n !== 104).map(n => ({ no: n, kousei_text: 'x 図解（' + 'a' + '）' }));
   const w = [];
   const m = G.validateRows_(rows, nos, 'kousei_text', w);
-  assert.strictEqual(m[104.5], '');
+  assert.strictEqual(m[104.5], undefined);
 });
 
 test('取り込み: 104.5 以外の欠落は今までどおり止まる', () => {
@@ -142,11 +132,11 @@ test('プロンプト: 記入なし → 空文字を出す指示／記入あり 
   const b = G.qaPromptBlock_([{ q: '費用は？', a: '月5万円です' }]);
   assert.match(b, /Q1\. 費用は？\nA1\. 月5万円です/);
 });
-test('プロンプト全体: 104.5 の台本ルールとQ&Aの組が入る', () => {
+test('プロンプト全体: Q&Aを台本生成対象に入れない', () => {
   const p = G.buildManualPrompt_({ offer: 'o', problem: 'p', story: 's', qa: [{ q: '費用は？', a: '月5万円です' }] }, { iconP: [], iconW: [], bg85: [], bg25: [], bg15: [], select: [] }, 'サンプル社_ヒアリングシート');
   assert.match(p, /No\.104\.5: よくある質問/);
   assert.match(p, /A1\. 月5万円です/);
-  assert.match(p, /生成対象行: [^\n]*104,104\.5,105|生成対象行: [^\n]*104,104\.5/);
+  assert.ok(!/生成対象行: [^\n]*104,104\.5/.test(p));
 });
 
 // ============================================================
@@ -248,28 +238,28 @@ test('通し: 古い構成シート（104.5の行なし・ホスピタソン社�
 
 test('通し: 新しい構成シートでQ&Aが斜線 → 複製しない・台本txtにも入らない', () => {
   const r = runGenerate(baseRows(true, '（斜線）', '（斜線: このスライドはテンプレのままスキップ設定で出力されます）'));
-  assert.ok(!r.log.some(x => /^duplicate/.test(x)));
+  assert.deepStrictEqual(r.log.filter(x => /^duplicate/.test(x)), ['duplicate:105']);
   assert.ok(!/斜線/.test(r.daihonTxt));
 });
 
-test('通し: 新しい構成シートでQ&Aあり → No.104のテンプレ（108枚の106枚目）を複製・台本は104と105の間', () => {
+test('通し: Q&Aが構成シートに残っていてもスライドを複製しない', () => {
   const r = runGenerate(baseRows(true, 'Q. 費用は？\nA. 月5万円です', 'ここで、よくいただくご質問にお答えします。'));
   assert.deepStrictEqual(r.log.filter(x => /^duplicate/.test(x)), ['duplicate:105']);
-  assert.ok(r.qaFilled && r.qaFilled.slide.isDup);
-  assert.strictEqual(r.log.dupSlide.notes, 'ここで、よくいただくご質問にお答えします。');
+  assert.strictEqual(r.qaFilled, null);
+  assert.strictEqual(r.log.dupSlide.notes, null);
   assert.strictEqual(r.slides[105].notes, 'd104');           // 元のNo.104はそのまま
   assert.strictEqual(r.slides[106].notes, 'd105');           // No.105以降もずれない
   const t = r.daihonTxt;
-  assert.ok(t.indexOf('d104') < t.indexOf('よくいただく') && t.indexOf('よくいただく') < t.indexOf('d105'), t.slice(-300));
+  assert.ok(!/よくいただく/.test(t));
 });
 
-test('通し: No.104が斜線（分割なし）でもQ&Aは出る・Q&Aは斜線スキップを引き継がない', () => {
+test('通し: No.104が斜線でもQ&Aスライドは出さない', () => {
   const rows = baseRows(true, 'Q. 費用は？\nA. 月5万円です', 'Q&Aの台本');
   rows[104] = { kousei: '（斜線）', daihon: '（斜線）', kouseiResolved: '（斜線）' };
   const r = runGenerate(rows);
   assert.strictEqual(r.slides[105].skipped, true);
   assert.strictEqual(r.log.dupSlide.skipped, false);
-  assert.strictEqual(r.log.dupSlide.notes, 'Q&Aの台本');
+  assert.strictEqual(r.qaFilled, null);
 });
 
 test('通し: 松竹梅でも同じ（No.104の位置は料金バリアントの影響を受けない）', () => {
@@ -293,15 +283,15 @@ function fakeSheet(values) {
   };
   return sh;
 }
-test('構成シート: オファータブで104の次の行が104.5・取り込み済みで空なら（斜線）', () => {
+test('構成シート: オファータブにQ&A行を作らない', () => {
   const tabs = {};
   const ss = { getSheetByName: n => tabs[n], insertSheet: n => (tabs[n] = fakeSheet()) };
   G.writeContentTabs_(ss, { 104: 'k104' }, { 104: 'd104' }, {}, {});
   const v = tabs['オファー'].values;
   const i = v.findIndex(r => r[0] === 104);
-  assert.strictEqual(v[i + 1][0], 104.5);
-  assert.strictEqual(v[i + 1][3], '（斜線）');
-  assert.strictEqual(v[i + 2][0], 105);
+  assert.strictEqual(v[i + 1][0], 105);
+  assert.strictEqual(v[i + 1][3], '');
+  assert.strictEqual(v[i + 2][0], 106);
 });
 test('構成シート読み戻し: 104.5 を数値で読める／古い形（行なし）は rows[104.5] が無い', () => {
   function sheetWith(offerRows) {

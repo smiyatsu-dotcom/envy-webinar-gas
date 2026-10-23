@@ -1,0 +1,18 @@
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+const assert = require('assert');
+const src = fs.readFileSync(path.join(__dirname, '..', '65_qa_cue.js'), 'utf8').replace(/^const /gm, 'var ');
+const ctx = {}; vm.createContext(ctx); vm.runInContext(src, ctx);
+const values = Array.from({ length: 70 }, () => ['', '', '', '']);
+values[59] = ['', '⒌ よくある質問（Q&A）', '', ''];
+values[60] = ['', '', 'よくある質問：', '費用は？']; values[61] = ['', '', '記入欄：', '月5万円です'];
+values[62] = ['', '', 'よくある質問：', '']; values[63] = ['', '', '記入欄：', ''];
+values[64] = ['', '', 'よくある質問：', '期間は？']; values[65] = ['', '', '記入欄：', '3か月です'];
+const pairs = JSON.parse(JSON.stringify(ctx.qaCuePairsFromValues_(values)));
+assert.deepStrictEqual(pairs, [{ q: '費用は？', a: '月5万円です' }, { q: '', a: '' }, { q: '期間は？', a: '3か月です' }]);
+const text = ctx.qaCueText_(pairs);
+assert.match(text, /司会が読む質問：費用は？/);
+assert.match(text, /登壇者の回答：月5万円です/);
+assert.match(text, /司会が読む質問：未記入/);
+console.log('ok Q&Aカンペ: FAQ原文を保持し、未記入を明示する');

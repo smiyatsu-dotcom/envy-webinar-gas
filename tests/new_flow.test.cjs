@@ -388,19 +388,28 @@ function 旧の分(log) {
 }
 /** 監視専用inventoryは旧案件の業務書込みではないので、旧版との業務副作用比較から除く。 */
 function 業務の分(log) { return log.filter(e => JSON.stringify(e).indexOf('【状態】資料実物_webinar-gas.json') < 0); }
+/** 今回承認された5点納品の表示差だけを旧基準へ正規化する。業務処理の他差分は比較で検出する。 */
+function 五点納品を旧基準へ_(log) {
+  return 業務の分(log).map(e => {
+    const x = 平ら(e), s = JSON.stringify(x);
+    if (s.indexOf('5点を【納品】へコピー') >= 0) x[3][1][0] = '4点を【納品】へコピー（チェックすると実行）';
+    if (s.indexOf('Q&Aカンペ') >= 0 && x[0] === 'set' && x[2] === 'B23') x[3] = String(x[3]).replace(/・Q&Aカンペ(?:PDF)?(?:\([^)]*\))?/g, '');
+    return x;
+  });
+}
 
 test('旧の流れ: 変更前（' + BASE + '）と今で、main() の書き込みが1つ残らず同じ', () => {
   const 前 = 回す(BASE, false).log;
   const 今 = 回す(null, false).log;
   assert.ok(前.length > 20, '比べる記録が少なすぎる: ' + 前.length);
-  assert.deepStrictEqual(平ら(業務の分(今)), 平ら(業務の分(前)));
+  assert.deepStrictEqual(五点納品を旧基準へ_(今), 五点納品を旧基準へ_(前));
 });
 
 test('旧の流れ: 新の流れの案件と【開始】が混ざっていても、旧の案件への書き込みは変更前と同じ', () => {
   const 前 = 旧の分(回す(BASE, false).log);
   const 今 = 旧の分(回す(null, true).log);
   assert.ok(前.length > 20);
-  assert.deepStrictEqual(平ら(今), 平ら(前));
+  assert.deepStrictEqual(五点納品を旧基準へ_(今), 五点納品を旧基準へ_(前));
 });
 
 test('取り込み: Mac がまだ資料を作っている（【指示】資料_ が残っている）うちは、txt があっても取り込まない', () => {

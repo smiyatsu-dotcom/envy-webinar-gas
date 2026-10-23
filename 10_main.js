@@ -55,6 +55,7 @@ function main() {
     processLpFixRequests_();
     processSlideFixRequests_();
     processDelivery_();
+    try { syncAllQaCues_(); } catch (e) { Logger.log('★Q&Aカンペ更新: ' + e); }
     syncThumbnailToOutput_();
     // ★新しい流れ（管理シート H列＝新）。旧の流れの処理がすべて終わってから回す。
     //   ここで失敗しても旧の流れには響かないよう、1つずつ包む（→ 15_new_flow.js）
