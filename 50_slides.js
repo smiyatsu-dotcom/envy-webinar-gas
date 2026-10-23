@@ -16,6 +16,9 @@ var 新_画像を合わせる_ = false;
 
 function generateSlides_(kouseiSheetId, opt) {
   const cfg = getConfig_();
+  // The only alternate output root is the no-argument isolation runner below.
+  // Production callers never receive this option from user input.
+  if (opt && opt.isolationOutputFolderId) cfg.OUTPUT_FOLDER_ID = String(opt.isolationOutputFolderId);
   const data = readKouseiSheet_(kouseiSheetId); // rows + ryoukin（単一/松竹梅)
   const warnings = [];
   // ★opt.安全（新しい流れだけ・2026-09-26）: 「【作成中】」の名前で組み、組み終わってから名前を戻して旧をゴミ箱へ。
@@ -125,6 +128,16 @@ function generateSlides_(kouseiSheetId, opt) {
     if (data.ryoukin === '松竹梅') { slides[102].remove(); slides[95].remove(); }
     else { slides[103].remove(); slides[96].remove(); }
   } catch (e) { warnings.push('料金バリアント削除失敗: ' + e); }
+
+  // Keep an explicit, generator-authored correspondence for the *current* deck.
+  // Do not reconstruct this later from getSlides()[n]: variants and Q&A make that
+  // position unsuitable as proof of a template origin.
+  function generatedSlideFor(no) { return (no === 96 || no === 102) && data.ryoukin === '松竹梅' ? matsuFor(no) : slideFor(no); }
+  try { writeGeometrySlideMap_(outFolder, caseCompany_(data.name), copyFile.getId(), generatedSlideFor, qaSlide, pres); }
+  catch (e) { warnings.push('配置対応表の保存失敗: ' + e); }
+
+  try { applyPersistentGeometry_(outFolder, caseCompany_(data.name), function (no) { return no === QA_NO ? qaSlide : slideFor(no); }, warnings); }
+  catch (e) { warnings.push('配置指定を適用できません: ' + e); }
 
   pres.saveAndClose();
   if (安全) {
