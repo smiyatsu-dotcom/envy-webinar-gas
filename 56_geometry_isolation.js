@@ -40,7 +40,8 @@ var 隔離通し_生成_rootID = '1oQSEwyopPcvX20xuxNDHy5Kh4TfvtCBO';
 var 隔離通し_生成_親rootID = '1GUmxo4J9cj0WYdh4IPj2lBi3RSxiMw73';
 var 隔離通し_生成_root名 = '【隔離通し】診断から資料音声_20261023';
 var 隔離通し_生成_台帳ID = '16UgS3scd3X2D2Qqhzd1WfJuGkuNcOt5WbekQZLyKDpg';
-var 隔離通し_生成_出力ID = '18-xhLrskU8M9DvW2Rurqg5ST_NrOiSM2';
+var 隔離通し_生成_開始箱ID = '1Mxch8d4SEbddMfx-C2slbmQWWa1Uz16u';
+var 隔離通し_生成_生成物rootID = '18-xhLrskU8M9DvW2Rurqg5ST_NrOiSM2';
 var 隔離通し_生成_ヒアリングID = '1ur8hPUElZMrKuitnDo1j1wzr54EkmRY9efNMaEQFErs';
 
 function 隔離通し_生成の親を確かめる_(fileOrFolder, parentId, label) {
@@ -54,9 +55,12 @@ function 隔離通し_生成設定を作る_() {
   var root = DriveApp.getFolderById(隔離通し_生成_rootID);
   if (root.getName() !== 隔離通し_生成_root名) throw new Error('隔離通しroot名が一致しません');
   隔離通し_生成の親を確かめる_(root, 隔離通し_生成_親rootID, '隔離通しroot');
-  var output = DriveApp.getFolderById(隔離通し_生成_出力ID);
-  隔離通し_生成の親を確かめる_(output, root.getId(), '隔離通し出力');
-  if (output.getName() !== '【出力】生成物') throw new Error('隔離通し出力フォルダ名が一致しません');
+  var startBox = DriveApp.getFolderById(隔離通し_生成_開始箱ID);
+  隔離通し_生成の親を確かめる_(startBox, root.getId(), '隔離通し開始箱');
+  if (startBox.getName() !== '【出力】') throw new Error('隔離通し開始箱名が一致しません');
+  var output = DriveApp.getFolderById(隔離通し_生成_生成物rootID);
+  隔離通し_生成の親を確かめる_(output, root.getId(), '隔離通し生成物root');
+  if (output.getName() !== '【出力】生成物') throw new Error('隔離通し生成物root名が一致しません');
   var ledgerFile = DriveApp.getFileById(隔離通し_生成_台帳ID);
   隔離通し_生成の親を確かめる_(ledgerFile, root.getId(), '隔離通し台帳');
 
@@ -80,16 +84,54 @@ function 隔離通し_生成設定を作る_() {
   return Object.assign({}, normal, {
     ISOLATION_TEST: true,
     OUTPUT_FOLDER_ID: output.getId(),
-    MGMT_SHEET_ID: 隔離通し_生成_台帳ID
+    MGMT_SHEET_ID: 隔離通し_生成_台帳ID,
+    ISOLATION_START_BOX_ID: startBox.getId()
   });
 }
 
-/** 固定fixtureの【開始】だけを通常登録処理で読む。 */
+function 隔離通し_同名ファイル1件_(folder, name, label) {
+  var it = folder.getFilesByName(name);
+  if (!it.hasNext()) return null;
+  var file = it.next();
+  if (it.hasNext()) throw new Error(label + ' が複数あります');
+  return file;
+}
+
+function 隔離通し_正規開始を引き渡す_(cfg) {
+  var startBox = DriveApp.getFolderById(cfg.ISOLATION_START_BOX_ID);
+  var startName = '【開始】' + 隔離通し_生成_案件名 + '.json';
+  var start = 隔離通し_同名ファイル1件_(startBox, startName, '隔離通し開始JSON');
+  if (!start) return { handed: false, reason: '開始箱に未処理の正規開始JSONがありません' };
+  var payload = 開始を読む_(start.getBlob().getDataAsString('UTF-8'));
+  if (payload.案件名 !== 隔離通し_生成_案件名 || payload.ヒアリングシートID !== 隔離通し_生成_ヒアリングID) {
+    throw new Error('隔離通し開始JSONの案件またはヒアリングIDが固定fixtureと一致しません');
+  }
+
+  var generatedRoot = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+  var old = generatedRoot.getFoldersByName(隔離通し_生成_案件名);
+  if (old.hasNext()) {
+    var prior = old.next();
+    if (old.hasNext()) throw new Error('隔離通し生成物の案件フォルダが複数あります');
+    var root = DriveApp.getFolderById(隔離通し_生成_rootID);
+    var stamp = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMdd-HHmmss');
+    var archive = root.createFolder('【再試験控え】' + 隔離通し_生成_案件名 + '_' + stamp);
+    // 削除・上書きではなく、旧済開始・状態・成果物を丸ごと控えへ保全する。
+    prior.moveTo(archive);
+  }
+  var destination = generatedRoot.createFolder(隔離通し_生成_案件名);
+  // JSON本文は変えず、正規開始処理が読む案件フォルダへだけ移す。
+  start.moveTo(destination);
+  return { handed: true, startFileId: start.getId(), outputFolderId: destination.getId(), outputUrl: destination.getUrl() };
+}
+
+/** 固定fixtureの正規開始JSONを既存登録処理へ安全に引き渡す。 */
 function 隔離通し生成を開始する() {
   var cfg = 隔離通し_生成設定を作る_();
   return withIsolationTestConfig_(cfg, function () {
+    var handoff = 隔離通し_正規開始を引き渡す_(cfg);
+    if (!handoff.handed) return Object.assign({ ok: true, phase: 'start' }, handoff);
     processStartOrders_();
-    return { ok: true, phase: 'start', caseName: 隔離通し_生成_案件名, outputRootId: cfg.OUTPUT_FOLDER_ID, managementSheetId: cfg.MGMT_SHEET_ID };
+    return Object.assign({ ok: true, phase: 'start', caseName: 隔離通し_生成_案件名, outputRootId: cfg.OUTPUT_FOLDER_ID, managementSheetId: cfg.MGMT_SHEET_ID }, handoff);
   });
 }
 

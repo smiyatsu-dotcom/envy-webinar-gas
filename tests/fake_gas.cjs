@@ -119,7 +119,7 @@ function makeEnv() {
     id = id || ('D' + (++seq) + 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
     const d = {
       id, name, parent, path: (parent ? parent.path + '/' : '') + name, subs: [], files: [],
-      getId: () => id, getName: () => name,
+      getId: () => id, getName: () => name, getUrl: () => 'https://drive/folders/' + id,
       getParents: () => iter(parent ? [parent] : []),
       getFolders: () => iter(d.subs.slice()),
       getFiles: () => iter(d.files.filter(f => !f.trashed && f.parent === d)),
