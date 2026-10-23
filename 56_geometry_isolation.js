@@ -161,10 +161,14 @@ function 隔離通し生成を開始する() {
   });
 }
 
-/** 固定fixtureの1件だけを通常の新フロー処理で進める。 */
+/**
+ * 固定fixtureの1件だけを通常の新フロー順で進める。
+ * main の import → new-flow の順だけを再現する。開始の引渡し・台帳初期化はしない。
+ */
 function 隔離通し生成を進める() {
   var cfg = 隔離通し_生成設定を作る_();
   return withIsolationTestConfig_(cfg, function () {
+    processImports_();
     processNewFlow_();
     return { ok: true, phase: 'advance', caseName: 隔離通し_生成_案件名, outputRootId: cfg.OUTPUT_FOLDER_ID, managementSheetId: cfg.MGMT_SHEET_ID };
   });

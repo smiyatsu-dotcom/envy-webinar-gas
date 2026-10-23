@@ -70,4 +70,15 @@ test('隔離通し入口: 正規開始JSONを本文不変で案件フォルダ�
   assert.strictEqual(G.SpreadsheetApp.openById('16UgS3scd3X2D2Qqhzd1WfJuGkuNcOt5WbekQZLyKDpg').getSheets()[0].getDataRange().getValues().length, 1);
 });
 
+test('隔離通し進行: 開始を触らず、正規の取り込み後に新フローを進める', () => {
+  const { G } = fixture();
+  const calls = [];
+  G.processImports_ = () => calls.push('imports');
+  G.processNewFlow_ = () => calls.push('new-flow');
+  G.processStartOrders_ = () => calls.push('start');
+  const result = G.隔離通し生成を進める();
+  assert.strictEqual(result.phase, 'advance');
+  assert.deepStrictEqual(calls, ['imports', 'new-flow']);
+});
+
 console.log('pass ' + pass);
