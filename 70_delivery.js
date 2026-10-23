@@ -264,6 +264,14 @@ function 納品する_(cfg, projectName, st) {
       return { 文: 文, 入れた: false };
     }
 
+    // Q&Aは納品5点の必須条件。先に生成・検査を完了させ、FAQが欄なし・未記入・片側だけ
+    // のときは、既存の空カンペを含めて何も【納品】へコピーしない。
+    try { syncQaCue_(cfg, String(projectName)); } catch (e) {
+      const 文 = 'Q&Aカンペが未完成のため、納品フォルダへは何も入れていません。' + e;
+      st.getRange('B23').setValue(文);
+      return { 文: 文, 入れた: false };
+    }
+
     const done = [];
     const miss = [];
     const kept = [];   // 手直しがあるので作り直さなかったもの（→ deliverOne_）
@@ -277,8 +285,6 @@ function 納品する_(cfg, projectName, st) {
         done.push(kind);
       }
     };
-
-    try { syncQaCue_(cfg, String(projectName)); } catch (e) { miss.push('Q&Aカンペ(' + e + ')'); }
 
     // ① スライド / ② 音声 / ③ LP … 案件フォルダから
     // ★納品フォルダのスライドは、ウェビナータイトル名で入れる（2026-09-25・宮津さん。1-2・3-3の表と同じ）。

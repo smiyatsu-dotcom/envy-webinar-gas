@@ -1,0 +1,33 @@
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+const { makeEnv, loadGas } = require('/Users/shun/Documents/Codex/2026-10-23/task-22/envy-webinar-gas/tests/fake_gas.cjs');
+
+const source = fs.readFileSync('/Users/shun/Documents/Codex/2026-10-23/task-22/envy-webinar-gas/65_qa_cue.js', 'utf8').replace(/^const /gm, 'var ');
+const ctx = {}; vm.createContext(ctx); vm.runInContext(source, ctx);
+const blank = Array.from({ length: 70 }, () => ['', '', '', '']);
+assert.strictEqual(ctx.qaCueFaqStatusFromValues_(blank).state, '欄なし');
+const partial = blank.map(r => r.slice());
+partial[59] = ['', '⒌ よくある質問（Q&A）', '', ''];
+partial[60] = ['', '', 'よくある質問：', '質問1']; partial[61] = ['', '', '記入欄：', '回答1'];
+partial[62] = ['', '', 'よくある質問：', '質問2']; partial[63] = ['', '', '記入欄：', ''];
+partial[64] = ['', '', 'よくある質問：', '質問3']; partial[65] = ['', '', '記入欄：', '回答3'];
+assert.strictEqual(ctx.qaCueFaqStatusFromValues_(partial).state, '未記入');
+assert.throws(() => ctx.qaCueRequireCompleteFaq_(partial), /FAQ 2の回答/);
+partial[63][3] = '回答2';
+assert.strictEqual(ctx.qaCueFaqStatusFromValues_(partial).state, '完成');
+
+const e = makeEnv(), G = loadGas(e);
+const out = e.makeFolder('出力', null, 'OUT'), del = e.makeFolder('【納品】', null, '1l3qvbW2u-4RLBvNov4ZUj-opEGapdZnJ');
+const src = out.addFolder('案件'), dst = del.addFolder('案件');
+src.addFile('【Q&Aカンペ】案件', 'old', 'application/vnd.google-apps.document');
+src.addFile('【Q&Aカンペ】案件.pdf', 'old', 'application/pdf');
+src.addFile('【スライド】案件', 'slide'); src.addFile('【音声】案件.mp3', 'audio'); src.addFile('【LP】案件', 'lp');
+G.deliveryFolderOf_ = () => dst; G.caseFolderIfExists_ = () => src; G.webinarTitleOf_ = () => '';
+G.syncQaCue_ = () => { throw new Error('Q&Aカンペを生成・納品できません: FAQ 1の質問が未記入です'); };
+let result = ''; const st = { getRange: () => ({ setValue: v => { result = v; } }) };
+const r = G.納品する_({ ASSETS_FOLDER_ID: 'none' }, '案件', st);
+assert.strictEqual(r.入れた, false); assert.match(result, /何も入れていません/);
+assert.strictEqual(e.log.filter(x => x[0] === 'copy').length, 0);
+console.log('ok FAQ欄なし・未記入・完成を区別し、未完成なら既存の空カンペを含め納品コピーを拒否する');
