@@ -1,0 +1,60 @@
+// 固定隔離通し生成の安全境界。Google 本体へは接続しない。
+const assert = require('assert');
+const { makeEnv, loadGas } = require('./fake_gas.cjs');
+
+let pass = 0;
+function test(name, fn) {
+  try { fn(); pass++; console.log('ok  ' + name); }
+  catch (e) { console.log('NG  ' + name + '\n    ' + (e && e.stack || e)); process.exitCode = 1; }
+}
+
+function fixture() {
+  const env = makeEnv();
+  const G = loadGas(env);
+  env.props.INPUT_FOLDER_ID = 'normal-input';
+  env.props.OUTPUT_FOLDER_ID = 'normal-output';
+  env.props.TEMPLATE_SLIDE_ID = 'template';
+  env.props.ASSETS_FOLDER_ID = 'assets';
+  env.props.MGMT_SHEET_ID = 'normal-ledger';
+  const parent = env.makeFolder('【隔離試験】配置永続化', null, '1GUmxo4J9cj0WYdh4IPj2lBi3RSxiMw73');
+  const root = parent.addFolder('【隔離通し】診断から資料音声_20261023', '1oQSEwyopPcvX20xuxNDHy5Kh4TfvtCBO');
+  const output = root.addFolder('【出力】生成物', '18-xhLrskU8M9DvW2Rurqg5ST_NrOiSM2');
+  const ss = env.makeSpreadsheet('16UgS3scd3X2D2Qqhzd1WfJuGkuNcOt5WbekQZLyKDpg', ['シート1']);
+  ss.getSheets()[0].appendRow(['ヒアリングファイルID', '案件名', 'ステータス', '構成シートURL', 'スライドURL', 'メッセージ', '更新日時', '流れ']);
+  ss.getSheets()[0].appendRow(['1ur8hPUElZMrKuitnDo1j1wzr54EkmRY9efNMaEQFErs', '隔離通し診断テスト社_ヒアリングシート', 'AI出力待ち', '', '', '', '', '新']);
+  const ledgerFile = { getParents: () => ({ hasNext: (() => { let n = 0; return () => n++ === 0; })(), next: () => root }) };
+  const oldFile = G.DriveApp.getFileById;
+  G.DriveApp.getFileById = id => id === ss.getId() ? ledgerFile : oldFile(id);
+  return { env, G, root, output, ss };
+}
+
+test('withIsolationTestConfig_: 実行中だけ設定を差し替え、Propertiesは書かない', () => {
+  const { env, G } = fixture();
+  const before = Object.assign({}, env.props);
+  const value = G.withIsolationTestConfig_({ ISOLATION_TEST: true, OUTPUT_FOLDER_ID: 'isolated' }, () => G.getConfig_().OUTPUT_FOLDER_ID);
+  assert.strictEqual(value, 'isolated');
+  assert.deepStrictEqual(env.props, before);
+  assert.throws(() => G.withIsolationTestConfig_({}, () => {}), /形が違います/);
+});
+
+test('隔離通し生成設定: 親・台帳・出力を固定照合し、通常設定と混ぜない', () => {
+  const { G } = fixture();
+  const cfg = G.隔離通し_生成設定を作る_();
+  assert.strictEqual(cfg.ISOLATION_TEST, true);
+  assert.strictEqual(cfg.OUTPUT_FOLDER_ID, '18-xhLrskU8M9DvW2Rurqg5ST_NrOiSM2');
+  assert.strictEqual(cfg.MGMT_SHEET_ID, '16UgS3scd3X2D2Qqhzd1WfJuGkuNcOt5WbekQZLyKDpg');
+  assert.strictEqual(cfg.TEMPLATE_SLIDE_ID, 'template');
+});
+
+test('隔離通し入口: 固定の通常処理だけを一度呼び、任意入力を受けない', () => {
+  const { G } = fixture();
+  let start = 0, advance = 0;
+  G.processStartOrders_ = () => { start++; };
+  G.processNewFlow_ = () => { advance++; };
+  assert.strictEqual(G.隔離通し生成を開始する().phase, 'start');
+  assert.strictEqual(G.隔離通し生成を進める().phase, 'advance');
+  assert.strictEqual(start, 1);
+  assert.strictEqual(advance, 1);
+});
+
+console.log('pass ' + pass);

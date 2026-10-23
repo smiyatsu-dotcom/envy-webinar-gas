@@ -5,7 +5,18 @@
  *   （詳細は「文字数・フォントサイズ規定書.md」参照。本ファイルが単一ソース）
  */
 
+// 隔離通し試験が同じ実行の間だけ渡す設定。Script Properties は変更しない。
+var ISOLATION_TEST_CONFIG_ = null;
+
+function withIsolationTestConfig_(cfg, fn) {
+  if (!cfg || !cfg.ISOLATION_TEST || typeof fn !== 'function') throw new Error('隔離試験設定の形が違います');
+  if (ISOLATION_TEST_CONFIG_) throw new Error('隔離試験設定を重ねて使えません');
+  ISOLATION_TEST_CONFIG_ = cfg;
+  try { return fn(); } finally { ISOLATION_TEST_CONFIG_ = null; }
+}
+
 function getConfig_() {
+  if (ISOLATION_TEST_CONFIG_) return ISOLATION_TEST_CONFIG_;
   const p = PropertiesService.getScriptProperties();
   const req = ['INPUT_FOLDER_ID', 'OUTPUT_FOLDER_ID', 'TEMPLATE_SLIDE_ID', 'ASSETS_FOLDER_ID', 'MGMT_SHEET_ID'];
   const cfg = {};

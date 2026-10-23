@@ -33,6 +33,75 @@ function スライド_隔離fixtureを作る() {
   return { created: true, sheetId: ss.getId(), sheetName: ss.getName(), caseName: caseName, outputRootId: rootId };
 }
 
+// 2026-10-23: 失われた旧fixtureの復元ではなく、新しい固定隔離用の再実行入口。
+// 引数・任意ID・任意関数は受け付けず、通常 main/顧客root/通知を通さない。
+var 隔離通し_生成_案件名 = '隔離通し診断テスト社';
+var 隔離通し_生成_rootID = '1oQSEwyopPcvX20xuxNDHy5Kh4TfvtCBO';
+var 隔離通し_生成_親rootID = '1GUmxo4J9cj0WYdh4IPj2lBi3RSxiMw73';
+var 隔離通し_生成_root名 = '【隔離通し】診断から資料音声_20261023';
+var 隔離通し_生成_台帳ID = '16UgS3scd3X2D2Qqhzd1WfJuGkuNcOt5WbekQZLyKDpg';
+var 隔離通し_生成_出力ID = '18-xhLrskU8M9DvW2Rurqg5ST_NrOiSM2';
+var 隔離通し_生成_ヒアリングID = '1ur8hPUElZMrKuitnDo1j1wzr54EkmRY9efNMaEQFErs';
+
+function 隔離通し_生成の親を確かめる_(fileOrFolder, parentId, label) {
+  var parents = fileOrFolder.getParents();
+  if (!parents.hasNext() || parents.next().getId() !== parentId || parents.hasNext()) {
+    throw new Error(label + ' が固定隔離root直下ではありません');
+  }
+}
+
+function 隔離通し_生成設定を作る_() {
+  var root = DriveApp.getFolderById(隔離通し_生成_rootID);
+  if (root.getName() !== 隔離通し_生成_root名) throw new Error('隔離通しroot名が一致しません');
+  隔離通し_生成の親を確かめる_(root, 隔離通し_生成_親rootID, '隔離通しroot');
+  var output = DriveApp.getFolderById(隔離通し_生成_出力ID);
+  隔離通し_生成の親を確かめる_(output, root.getId(), '隔離通し出力');
+  if (output.getName() !== '【出力】生成物') throw new Error('隔離通し出力フォルダ名が一致しません');
+  var ledgerFile = DriveApp.getFileById(隔離通し_生成_台帳ID);
+  隔離通し_生成の親を確かめる_(ledgerFile, root.getId(), '隔離通し台帳');
+
+  // 実行前に専用台帳がこの一件だけを新フローとして持つことを実物照合する。
+  // これにより processNewFlow_ の通常走査が顧客案件へ広がらない。
+  var rows = SpreadsheetApp.openById(隔離通し_生成_台帳ID).getSheets()[0].getDataRange().getValues();
+  var matches = rows.slice(1).filter(function (row) {
+    return String(row[0] || '').trim() === 隔離通し_生成_ヒアリングID &&
+      String(row[1] || '').trim() === 隔離通し_生成_案件名 + '_ヒアリングシート' &&
+      String(row[流れ_列 - 1] || '').trim() === 流れ_新;
+  });
+  if (matches.length !== 1 || rows.slice(1).filter(function (row) { return String(row[流れ_列 - 1] || '').trim() === 流れ_新; }).length !== 1) {
+    throw new Error('隔離通し台帳が固定の新フロー1件ではありません');
+  }
+
+  // 通常設定からテンプレート/素材の読取先だけを借り、書込先と台帳は必ず専用fixtureへ差し替える。
+  var normal = getConfig_();
+  if (normal.OUTPUT_FOLDER_ID === output.getId() || normal.MGMT_SHEET_ID === 隔離通し_生成_台帳ID) {
+    throw new Error('通常設定と隔離fixtureが分離されていません');
+  }
+  return Object.assign({}, normal, {
+    ISOLATION_TEST: true,
+    OUTPUT_FOLDER_ID: output.getId(),
+    MGMT_SHEET_ID: 隔離通し_生成_台帳ID
+  });
+}
+
+/** 固定fixtureの【開始】だけを通常登録処理で読む。 */
+function 隔離通し生成を開始する() {
+  var cfg = 隔離通し_生成設定を作る_();
+  return withIsolationTestConfig_(cfg, function () {
+    processStartOrders_();
+    return { ok: true, phase: 'start', caseName: 隔離通し_生成_案件名, outputRootId: cfg.OUTPUT_FOLDER_ID, managementSheetId: cfg.MGMT_SHEET_ID };
+  });
+}
+
+/** 固定fixtureの1件だけを通常の新フロー処理で進める。 */
+function 隔離通し生成を進める() {
+  var cfg = 隔離通し_生成設定を作る_();
+  return withIsolationTestConfig_(cfg, function () {
+    processNewFlow_();
+    return { ok: true, phase: 'advance', caseName: 隔離通し_生成_案件名, outputRootId: cfg.OUTPUT_FOLDER_ID, managementSheetId: cfg.MGMT_SHEET_ID };
+  });
+}
+
 function isolationUntouchedFingerprint_(slide, omit) {
   return slide.getPageElements().filter(function(e){return !omit(e);}).map(function(e){
     return JSON.stringify({label:elementLabel_(e),geometry:geometryOf_(e)});
