@@ -43,12 +43,22 @@ var 隔離通し_生成_台帳ID = '16UgS3scd3X2D2Qqhzd1WfJuGkuNcOt5WbekQZLyKDpg
 var 隔離通し_生成_開始箱ID = '1Mxch8d4SEbddMfx-C2slbmQWWa1Uz16u';
 var 隔離通し_生成_生成物rootID = '18-xhLrskU8M9DvW2Rurqg5ST_NrOiSM2';
 var 隔離通し_生成_ヒアリングID = '1ur8hPUElZMrKuitnDo1j1wzr54EkmRY9efNMaEQFErs';
+var 隔離通し_生成_素材root名 = '【素材】投影資料';
 
 function 隔離通し_生成の親を確かめる_(fileOrFolder, parentId, label) {
   var parents = fileOrFolder.getParents();
   if (!parents.hasNext() || parents.next().getId() !== parentId || parents.hasNext()) {
     throw new Error(label + ' が固定隔離root直下ではありません');
   }
+}
+
+function 隔離通し_生成の子フォルダ1件_(parent, name, label) {
+  var it = parent.getFoldersByName(name);
+  if (!it.hasNext()) throw new Error(label + ' が固定隔離root直下にありません');
+  var folder = it.next();
+  if (it.hasNext()) throw new Error(label + ' が固定隔離root直下に複数あります');
+  隔離通し_生成の親を確かめる_(folder, parent.getId(), label);
+  return folder;
 }
 
 function 隔離通し_生成設定を作る_() {
@@ -61,6 +71,7 @@ function 隔離通し_生成設定を作る_() {
   var output = DriveApp.getFolderById(隔離通し_生成_生成物rootID);
   隔離通し_生成の親を確かめる_(output, root.getId(), '隔離通し生成物root');
   if (output.getName() !== '【出力】生成物') throw new Error('隔離通し生成物root名が一致しません');
+  var assets = 隔離通し_生成の子フォルダ1件_(root, 隔離通し_生成_素材root名, '隔離通し素材root');
   var ledgerFile = DriveApp.getFileById(隔離通し_生成_台帳ID);
   隔離通し_生成の親を確かめる_(ledgerFile, root.getId(), '隔離通し台帳');
 
@@ -76,14 +87,17 @@ function 隔離通し_生成設定を作る_() {
     throw new Error('隔離通し台帳が固定の新フロー1件ではありません');
   }
 
-  // 通常設定からテンプレート/素材の読取先だけを借り、書込先と台帳は必ず専用fixtureへ差し替える。
+  // 通常設定からテンプレートだけを借りる。入出力・素材・台帳は必ず専用fixtureへ差し替える。
   var normal = getConfig_();
-  if (normal.OUTPUT_FOLDER_ID === output.getId() || normal.MGMT_SHEET_ID === 隔離通し_生成_台帳ID) {
+  if (normal.INPUT_FOLDER_ID === startBox.getId() || normal.OUTPUT_FOLDER_ID === output.getId() ||
+      normal.ASSETS_FOLDER_ID === assets.getId() || normal.MGMT_SHEET_ID === 隔離通し_生成_台帳ID) {
     throw new Error('通常設定と隔離fixtureが分離されていません');
   }
   return Object.assign({}, normal, {
     ISOLATION_TEST: true,
+    INPUT_FOLDER_ID: startBox.getId(),
     OUTPUT_FOLDER_ID: output.getId(),
+    ASSETS_FOLDER_ID: assets.getId(),
     MGMT_SHEET_ID: 隔離通し_生成_台帳ID,
     ISOLATION_START_BOX_ID: startBox.getId()
   });

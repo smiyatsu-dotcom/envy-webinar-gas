@@ -970,7 +970,8 @@ function setNotesText_(slide, text) {
   if (sh) sh.getText().setText(text);
 }
 function resolveAssetsFolder_(cfg, data, warnings) {
-  if (data.assetsFolderId) {
+  // 固定隔離通し試験では構成Sheet内の任意IDを信用しない。専用素材rootだけを使う。
+  if (!cfg.ISOLATION_TEST && data.assetsFolderId) {
     try { return DriveApp.getFolderById(data.assetsFolderId); } catch (e) { /* fallthrough */ }
   }
   const root = DriveApp.getFolderById(cfg.ASSETS_FOLDER_ID);
@@ -986,12 +987,16 @@ function resolveAssetsFolder_(cfg, data, warnings) {
   return root;
 }
 function resolveNamedFolder_(cfg, key) {
-  const pid = PropertiesService.getScriptProperties().getProperty(ASSET_PROP_KEYS[key]);
-  if (pid) { try { return DriveApp.getFolderById(pid); } catch (e) { /* next */ } }
+  if (!cfg.ISOLATION_TEST) {
+    const pid = PropertiesService.getScriptProperties().getProperty(ASSET_PROP_KEYS[key]);
+    if (pid) { try { return DriveApp.getFolderById(pid); } catch (e) { /* next */ } }
+  }
   try {
     const it = foldersByName_(DriveApp.getFolderById(cfg.ASSETS_FOLDER_ID), ASSET_SUB[key]);
     if (it.hasNext()) return it.next();
   } catch (e) { /* next */ }
+  // 隔離中は通常設定・既定素材IDへフォールバックせず、専用rootに無ければ停止する。
+  if (cfg.ISOLATION_TEST) return null;
   try { return DriveApp.getFolderById(DEFAULT_ASSET_IDS[key]); } catch (e) { return null; }
 }
 /** 背景画像フォルダ内の濃度サブフォルダ（85/25/15）の画像索引 */

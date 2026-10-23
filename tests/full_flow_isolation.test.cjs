@@ -20,13 +20,14 @@ function fixture() {
   const root = parent.addFolder('【隔離通し】診断から資料音声_20261023', '1oQSEwyopPcvX20xuxNDHy5Kh4TfvtCBO');
   const startBox = root.addFolder('【出力】', '1Mxch8d4SEbddMfx-C2slbmQWWa1Uz16u');
   const output = root.addFolder('【出力】生成物', '18-xhLrskU8M9DvW2Rurqg5ST_NrOiSM2');
+  const assets = root.addFolder('【素材】投影資料', 'isolation-assets');
   const ss = env.makeSpreadsheet('16UgS3scd3X2D2Qqhzd1WfJuGkuNcOt5WbekQZLyKDpg', ['シート1']);
   ss.getSheets()[0].appendRow(['ヒアリングファイルID', '案件名', 'ステータス', '構成シートURL', 'スライドURL', 'メッセージ', '更新日時', '流れ']);
   ss.getSheets()[0].appendRow(['1ur8hPUElZMrKuitnDo1j1wzr54EkmRY9efNMaEQFErs', '隔離通し診断テスト社_ヒアリングシート', 'AI出力待ち', '', '', '', '', '新']);
   const ledgerFile = { getParents: () => ({ hasNext: (() => { let n = 0; return () => n++ === 0; })(), next: () => root }) };
   const oldFile = G.DriveApp.getFileById;
   G.DriveApp.getFileById = id => id === ss.getId() ? ledgerFile : oldFile(id);
-  return { env, G, root, startBox, output, ss };
+  return { env, G, root, startBox, output, assets, ss };
 }
 
 test('withIsolationTestConfig_: 実行中だけ設定を差し替え、Propertiesは書かない', () => {
@@ -38,14 +39,26 @@ test('withIsolationTestConfig_: 実行中だけ設定を差し替え、Propertie
   assert.throws(() => G.withIsolationTestConfig_({}, () => {}), /形が違います/);
 });
 
-test('隔離通し生成設定: 親・台帳・出力を固定照合し、通常設定と混ぜない', () => {
-  const { G } = fixture();
+test('隔離通し生成設定: 入出力・素材・台帳を固定照合し、通常設定と混ぜない', () => {
+  const { G, startBox, assets } = fixture();
   const cfg = G.隔離通し_生成設定を作る_();
   assert.strictEqual(cfg.ISOLATION_TEST, true);
   assert.strictEqual(cfg.OUTPUT_FOLDER_ID, '18-xhLrskU8M9DvW2Rurqg5ST_NrOiSM2');
+  assert.strictEqual(cfg.INPUT_FOLDER_ID, startBox.getId());
+  assert.strictEqual(cfg.ASSETS_FOLDER_ID, assets.getId());
   assert.strictEqual(cfg.MGMT_SHEET_ID, '16UgS3scd3X2D2Qqhzd1WfJuGkuNcOt5WbekQZLyKDpg');
   assert.strictEqual(cfg.ISOLATION_START_BOX_ID, '1Mxch8d4SEbddMfx-C2slbmQWWa1Uz16u');
   assert.strictEqual(cfg.TEMPLATE_SLIDE_ID, 'template');
+  assert.notStrictEqual(cfg.INPUT_FOLDER_ID, 'normal-input');
+  assert.notStrictEqual(cfg.OUTPUT_FOLDER_ID, 'normal-output');
+  assert.notStrictEqual(cfg.ASSETS_FOLDER_ID, 'assets');
+  assert.notStrictEqual(cfg.MGMT_SHEET_ID, 'normal-ledger');
+});
+
+test('隔離通し生成設定: 通常設定が固定素材rootを指す混線はfail-closedする', () => {
+  const { env, G } = fixture();
+  env.props.ASSETS_FOLDER_ID = 'isolation-assets';
+  assert.throws(() => G.隔離通し_生成設定を作る_(), /通常設定と隔離fixture/);
 });
 
 test('隔離通し入口: 正規開始JSONを本文不変で案件フォルダへ渡し、通常処理を一度呼ぶ', () => {
