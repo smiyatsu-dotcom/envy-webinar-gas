@@ -38,4 +38,26 @@ assert.equal(verified.hearingId, hearingId);
 assert.equal(verified.revision, changed.revision);
 assert.equal(verified.sourceModifiedAt, '2026-10-23T00:00:00.000Z');
 assert.throws(() => G.スライド_相談室承認前ヒアリングを読む('存在しない社'), /管理シート/);
+
+// 固定隔離入口は通常台帳を見ず、56の固定root/台帳検査後に一件だけ再読する。
+const isoParent = env.makeFolder('【隔離試験】配置永続化', null, 'ISO_PARENT');
+const isoRoot = isoParent.addFolder('【隔離通し】診断から資料音声_20261023', 'ISO_ROOT');
+const isoStart = isoRoot.addFolder('【出力】', 'ISO_START');
+isoRoot.addFolder('【出力】生成物', 'ISO_OUTPUT');
+isoRoot.addFolder('【素材】投影資料', 'ISO_ASSETS');
+const isoLedger = env.makeSpreadsheet('ISO_LEDGER', ['管理']);
+isoLedger.getSheets()[0].getRange(1, 1, 2, 8).setValues([['ヒアリングID', '案件名', '状態', '構成', 'Slides', '文', '更新', '流れ'], [hearingId, '隔離通し診断テスト社_ヒアリングシート', 'レビュー待ち', '', '', '', '', '新']]);
+env.files.ISO_LEDGER = { getParents: () => ({ hasNext: (() => { let n = 0; return () => n++ === 0; })(), next: () => isoRoot }) };
+G.隔離通し_生成_案件名 = '隔離通し診断テスト社';
+G.隔離通し_生成_rootID = 'ISO_ROOT';
+G.隔離通し_生成_親rootID = 'ISO_PARENT';
+G.隔離通し_生成_台帳ID = 'ISO_LEDGER';
+G.隔離通し_生成_開始箱ID = 'ISO_START';
+G.隔離通し_生成_生成物rootID = 'ISO_OUTPUT';
+G.隔離通し_生成_ヒアリングID = hearingId;
+const isolated = G.スライド_隔離相談室承認前ヒアリングを読む();
+assert.equal(isolated.ok, true);
+assert.equal(isolated.caseName, '隔離通し診断テスト社');
+assert.equal(isolated.hearingId, hearingId);
+assert.equal(G.ISOLATION_TEST_CONFIG_, null);
 console.log('ok consultation hearing snapshot');

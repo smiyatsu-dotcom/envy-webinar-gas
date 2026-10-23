@@ -82,3 +82,28 @@ function スライド_相談室承認前ヒアリングを読む(caseName) {
     sourceModifiedAt: source.getLastUpdated().toISOString()
   };
 }
+
+/**
+ * 隔離通しfixture専用の原本再読。引数は受け取らず、56_geometry_isolation.js
+ * が実物照合した固定台帳・固定案件だけを読む。通常台帳へのfallback、原本/
+ * スナップショットへの書込み、通知はいずれも行わない。
+ */
+function スライド_隔離相談室承認前ヒアリングを読む() {
+  const isolation = 隔離通し_生成設定を作る_();
+  return withIsolationTestConfig_(isolation, function () {
+    const cfg = getConfig_();
+    const resolved = 相談室_管理行から原本を解決_(cfg, 隔離通し_生成_案件名);
+    if (resolved.hearingId !== 隔離通し_生成_ヒアリングID || caseCompany_(resolved.projectName) !== 隔離通し_生成_案件名) {
+      throw new Error('固定隔離案件の原本対応が一致しません');
+    }
+    const source = DriveApp.getFileById(resolved.hearingId);
+    const text = 相談室_原本テキスト_(SpreadsheetApp.openById(resolved.hearingId));
+    return {
+      ok: true,
+      caseName: 隔離通し_生成_案件名,
+      hearingId: resolved.hearingId,
+      revision: 相談室_ハッシュ_(text),
+      sourceModifiedAt: source.getLastUpdated().toISOString()
+    };
+  });
+}
