@@ -494,6 +494,8 @@ test('新の流れ: B2を先に押しても承認にならず外れ、B22も承�
   assert.strictEqual(進.流れ, '新');
   assert.strictEqual(進.案件名, '動画撮影テスト社');
   assert.strictEqual(進.系統.資料.find(x => x.名 === 'スライド').状態, '済');
+  assert.match(進.生成.revision, /^[a-f0-9]{64}$/);
+  assert.strictEqual(進.系統.資料.find(x => x.名 === 'スライド').url, 'https://slide/new/' + K(9));
   assert.strictEqual(進.承認.済, false);
 });
 
