@@ -312,6 +312,125 @@ function 隔離通しスライドだけを組み直す() {
   });
 }
 
+// J の最終台本を取り込むための、一度限りの固定隔離入口。
+// 引数で案件・フォルダ・台帳行を選ばせず、指定された非顧客 fixture 以外には
+// 一切書かない。通常 watcher / processNewFlow_ / 納品は呼ばない。
+var 隔離通し_J台本_案件フォルダID = '1Ko7cbJ2nW2C4uQbZfDnZjW6mfz_qmHZ0';
+var 隔離通し_J台本_ファイル名 = '【台本JSON】隔離通し診断テスト社.txt';
+var 隔離通し_J台本_旧SHA256 = 'a3d6e2cd4eaaaf57dacf64818ca33486cac14d907b6de562a48868da9404918a';
+var 隔離通し_J台本_SHA256 = '7eb361136315b71a1505d50e94cbeef12d28feb1846631ec67370072e5331645';
+var 隔離通し_J台本_行数 = 106;
+
+function 隔離通し_J台本_sha256_(text) {
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(text), Utilities.Charset.UTF_8);
+  return bytes.map(function (value) {
+    var hex = (value < 0 ? value + 256 : value).toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  }).join('');
+}
+
+function 隔離通し_J台本_本文を検証する_(text) {
+  if (隔離通し_J台本_sha256_(text) !== 隔離通し_J台本_SHA256) {
+    throw new Error('J最終台本のSHA-256が指定済み本文と一致しません');
+  }
+  var rows;
+  try { rows = JSON.parse(String(text)); } catch (e) { throw new Error('J最終台本がJSONとして読めません'); }
+  if (!Array.isArray(rows) || rows.length !== 隔離通し_J台本_行数) throw new Error('J最終台本は106行の配列だけを受け付けます');
+  var seen = {};
+  rows.forEach(function (row) {
+    if (!row || typeof row !== 'object' || Array.isArray(row) || Object.keys(row).sort().join(',') !== 'daihon,no') {
+      throw new Error('J最終台本の行形式が違います');
+    }
+    var no = Number(row.no);
+    if (!Number.isInteger(no) || no < 1 || no > 隔離通し_J台本_行数 || seen[no]) throw new Error('J最終台本のNo.が1〜106で一意ではありません');
+    if (typeof row.daihon !== 'string' || !row.daihon.trim()) throw new Error('J最終台本に空のdaihonがあります: No.' + no);
+    seen[no] = true;
+  });
+  for (var no = 1; no <= 隔離通し_J台本_行数; no++) if (!seen[no]) throw new Error('J最終台本にNo.' + no + 'がありません');
+  return rows;
+}
+
+function 隔離通し_J台本_固定対象を読む_(cfg) {
+  var output = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+  if (output.getId() !== 隔離通し_生成_生成物rootID || output.getName() !== '【出力】生成物') throw new Error('J台本取込の生成物rootが固定fixtureと一致しません');
+  var folder = caseFolderIfExists_(cfg, 隔離通し_生成_案件名);
+  if (!folder || folder.getId() !== 隔離通し_J台本_案件フォルダID || folder.getName() !== 隔離通し_生成_案件名) throw new Error('J台本取込の案件フォルダが固定隔離fixtureと一致しません');
+  隔離通し_生成の親を確かめる_(folder, output.getId(), 'J台本取込の案件フォルダ');
+
+  var rows = mgmtSheet_(cfg).getDataRange().getValues();
+  var matched = [];
+  var importable = [];
+  rows.slice(1).forEach(function (row, index) {
+    var status = String(row[2] || '').trim();
+    var exact = String(row[0] || '').trim() === 隔離通し_生成_ヒアリングID &&
+      String(row[1] || '').trim() === 隔離通し_生成_案件名 + '_ヒアリングシート' &&
+      String(row[流れ_列 - 1] || '').trim() === 流れ_新;
+    if (exact) matched.push({ row: row, rowNumber: index + 2 });
+    if (status === 'AI出力待ち' || status === 'レビュー待ち') importable.push({ exact: exact, rowNumber: index + 2 });
+  });
+  if (matched.length !== 1) throw new Error('J台本取込の固定台帳行を一意に確認できません');
+  if (importable.length && (importable.length !== 1 || !importable[0].exact)) throw new Error('J台本取込時に固定fixture以外の取込対象台帳行があります');
+  var ledger = matched[0];
+  var kouseiId = idFromUrl_(String(ledger.row[3] || ''));
+  var ss = SpreadsheetApp.openById(kouseiId);
+  var settings = ss.getSheetByName(TABS.SETTINGS);
+  if (!settings || String(settings.getRange('B1').getValue()).trim() !== 隔離通し_生成_案件名 + '_ヒアリングシート' ||
+      String(settings.getRange('B4').getValue()).trim() !== 隔離通し_生成_ヒアリングID ||
+      settings.getRange('B2').getValue() !== false || settings.getRange('B22').getValue() !== false) {
+    throw new Error('J台本取込の固定構成シートが未承認・未納品のfixtureではありません');
+  }
+  var blocked = [];
+  var files = folder.getFiles();
+  while (files.hasNext()) {
+    var name = nfc_(files.next().getName());
+    if (name.indexOf('【指示】資料_') === 0 || name.indexOf('【承認】') === 0 || name.indexOf('【納品指示】') === 0) blocked.push(name);
+  }
+  if (blocked.length) throw new Error('J台本取込の隔離案件に未完了・承認・納品の印があります: ' + blocked.join(', '));
+  var file = 隔離通し_同名ファイル1件_(folder, 隔離通し_J台本_ファイル名, 'J台本JSON');
+  if (!file) throw new Error('J台本取込の固定台本JSONがありません');
+  var current = file.getBlob().getDataAsString('UTF-8');
+  var currentHash = 隔離通し_J台本_sha256_(current);
+  if (currentHash !== 隔離通し_J台本_旧SHA256) throw new Error('J台本取込の既存台本が保全した旧版と一致しません');
+  return { folder: folder, file: file, ss: ss, ledger: ledger, kouseiId: kouseiId, currentHash: currentHash };
+}
+
+/** 読み取りだけの事前監査。取込・再生成・納品・通知はしない。 */
+function 隔離通し_J台本取込を検査() {
+  var cfg = 隔離通し_生成設定を作る_();
+  return withIsolationTestConfig_(cfg, function () {
+    var target = 隔離通し_J台本_固定対象を読む_(cfg);
+    return { ok: true, caseName: 隔離通し_生成_案件名, folderId: target.folder.getId(),
+      managementRow: target.ledger.rowNumber, kouseiSheetId: target.kouseiId,
+      currentScriptSha256: target.currentHash, expectedNextScriptSha256: 隔離通し_J台本_SHA256,
+      deliveryOrApproval: false, mode: 'read-only-preflight' };
+  });
+}
+
+/**
+ * 指定済みSHA-256のJ最終台本だけを、固定隔離案件の既存JSONへ反映して
+ * 正規 processImports_ に一度渡す。processNewFlow_・watcher・納品は呼ばない。
+ */
+function 隔離通し_J台本を正規取込する(daihonText) {
+  隔離通し_J台本_本文を検証する_(daihonText);
+  var cfg = 隔離通し_生成設定を作る_();
+  return withIsolationTestConfig_(cfg, function () {
+    var target = 隔離通し_J台本_固定対象を読む_(cfg);
+    // 現物の旧版を検査してから、同一の固定隔離txtだけを置き換える。
+    target.file.setContent(String(daihonText));
+    PropertiesService.getScriptProperties().deleteProperty('AUTOIMPORT_' + target.kouseiId);
+    upsertRow_(cfg, 隔離通し_生成_ヒアリングID, 隔離通し_生成_案件名 + '_ヒアリングシート', 'AI出力待ち', String(target.ledger.row[3]), '', 'J最終台本の固定隔離取込');
+    processImports_();
+    var after = mgmtSheet_(cfg).getDataRange().getValues()[target.ledger.rowNumber - 1];
+    if (String(after[2] || '').trim() !== 'レビュー待ち') throw new Error('J最終台本を正規取込後にレビュー待ちへ遷移しません');
+    var settings = target.ss.getSheetByName(TABS.SETTINGS);
+    if (!settings || settings.getRange('B2').getValue() !== false || settings.getRange('B22').getValue() !== false) {
+      throw new Error('J最終台本取込が承認または納品状態を変更しました');
+    }
+    return { ok: true, caseName: 隔離通し_生成_案件名, folderId: target.folder.getId(), managementRow: target.ledger.rowNumber,
+      scriptSha256: 隔離通し_J台本_sha256_(daihonText), status: 'レビュー待ち', mode: 'processImports-only' };
+  });
+}
+
 function 隔離通しスライド失敗を読む() {
   var cfg = 隔離通し_生成設定を作る_();
   return withIsolationTestConfig_(cfg, function () {
