@@ -199,10 +199,25 @@ function normalGeometryApply_(plan, runtime) {
   return { ok:true, proposalId:plan.proposalId, revision:plan.revision, planHash:plan.planHash, readback:true };
 }
 
+// The deployed normal endpoints normally resolve only the production ledger.
+// The one literal isolation case is allowed through the *same* resolver with
+// its independently verified ledger configuration, so an end-to-end executable
+// test never needs a customer case or a client-provided Drive/Slides id.  This
+// is intentionally an exact-name exception: every other case retains the
+// normal production configuration.
+function normalGeometryConfigForCase_(caseName) {
+  if (caseName !== ISOLATION_GEOMETRY_CASE) return getConfig_();
+  var isolation = 隔離通し_生成設定を作る_();
+  if (!isolation || isolation.ISOLATION_TEST !== true || isolation.MGMT_SHEET_ID !== 隔離通し_生成_台帳ID || isolation.OUTPUT_FOLDER_ID !== 隔離通し_生成_生成物rootID) {
+    throw new Error('固定隔離案件の設定を確認できません');
+  }
+  return isolation;
+}
+
 function スライド_通常案件承認用geometryを読む(request) {
-  return normalGeometryRead_(request, normalGeometryRuntime_(getConfig_()));
+  return normalGeometryRead_(request, normalGeometryRuntime_(normalGeometryConfigForCase_(request && request.caseName)));
 }
 
 function スライド_通常案件承認済み配置を適用(plan) {
-  return normalGeometryApply_(plan, normalGeometryRuntime_(getConfig_()));
+  return normalGeometryApply_(plan, normalGeometryRuntime_(normalGeometryConfigForCase_(plan && plan.caseName)));
 }

@@ -18,3 +18,12 @@ const normalRuntime={resolve:()=>map,revision:()=>map.presentationRevision,open:
 assert.strictEqual(ctx.normalGeometryRead_({caseName:'A社',slideNo:1},normalRuntime).target.objectId,'hero');assert.strictEqual(ctx.normalGeometryRead_({caseName:'A社',slideNo:12},normalRuntime).target.objectId,'heading12');
 let replacement='';ctx.filesByName_=()=>it([{setContent:t=>replacement=t}]);const next=slide('new1',[image('a'),image('b')]);ctx.writeGeometrySlideMap_(folder,'A社','deck-2',{1:'new1'},{getSlides:()=>[next]},{1:[{id:'a',type:'IMAGE',role:'primary-image'},{id:'b',type:'IMAGE',role:'primary-image'}]});const updated=JSON.parse(replacement);assert.strictEqual(updated.presentationId,'deck-2');assert.strictEqual(updated.pages[0].targetSelector,undefined);console.log('ok generated v2 map: live IMAGE or explicit editable heading SHAPE only');
 const editable=(id,text,top)=>({getObjectId:()=>id,getTop:()=>top,getWidth:()=>500,getHeight:()=>60,getText:()=>({asString:()=>text})});const genericPage={getShapes:()=>[editable('heading','新しい見出し',30),editable('body','本文',240)]};assert.strictEqual(ctx.generatorEditedHeading_(genericPage,{heading:'旧見出し',body:'本文'}).getObjectId(),'heading');const ambiguousPage={getShapes:()=>[editable('one','見出し1',20),editable('two','見出し2',70)]};assert.strictEqual(ctx.generatorEditedHeading_(ambiguousPage,{}),null);console.log('ok generated v2 map: live IMAGE or explicit editable heading SHAPE only');
+// The public normal endpoint may exercise exactly one fixed isolation case,
+// but no spelling variation or other case can select its separate ledger.
+const normalCfg={kind:'normal'}, isolationCfg={ISOLATION_TEST:true,MGMT_SHEET_ID:ctx.隔離通し_生成_台帳ID,OUTPUT_FOLDER_ID:ctx.隔離通し_生成_生成物rootID};
+ctx.getConfig_=()=>normalCfg;ctx.隔離通し_生成設定を作る_=()=>isolationCfg;
+assert.strictEqual(ctx.normalGeometryConfigForCase_(ctx.ISOLATION_GEOMETRY_CASE),isolationCfg);
+assert.strictEqual(ctx.normalGeometryConfigForCase_(ctx.ISOLATION_GEOMETRY_CASE+' '),normalCfg);
+assert.strictEqual(ctx.normalGeometryConfigForCase_('A社'),normalCfg);
+assert.throws(()=>{ctx.隔離通し_生成設定を作る_=()=>({ISOLATION_TEST:true,MGMT_SHEET_ID:'other',OUTPUT_FOLDER_ID:ctx.隔離通し_生成_生成物rootID});ctx.normalGeometryConfigForCase_(ctx.ISOLATION_GEOMETRY_CASE);},/固定隔離案件/);
+console.log('ok normal geometry: only the exact fixed isolation case selects its verified ledger');
