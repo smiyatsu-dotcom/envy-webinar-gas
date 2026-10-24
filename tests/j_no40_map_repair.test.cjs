@@ -10,7 +10,7 @@ const DECK = '1wLXXeU95iculuFJ_NOQ5oSZ3PSSWXLRa_L6m2GuX_vM';
 const MAP = '【スライド対応】隔離通し診断テスト社.json';
 const GEOMETRY = '【配置指定】隔離通し診断テスト社.json';
 const SCRIPT = '【台本JSON】隔離通し診断テスト社.txt';
-const TEXT = '【台本】隔離通し診断テスト社.txt';
+const TEXT = '【台本】隔離通し診断テスト社_ヒアリングシート.txt';
 const IMPORT_RECORD = '【不確定】J台本取込記録.json';
 
 let passed = 0;

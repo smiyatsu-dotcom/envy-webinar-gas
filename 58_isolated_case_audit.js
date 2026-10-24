@@ -101,7 +101,7 @@ const ISOLATED_J_CURRENT_AUDIT_ = {
   mapFileName: '【スライド対応】隔離通し診断テスト社.json',
   geometryFileName: '【配置指定】隔離通し診断テスト社.json',
   scriptFileName: '【台本JSON】隔離通し診断テスト社.txt',
-  textFileName: '【台本】隔離通し診断テスト社.txt',
+  textFileName: '【台本】隔離通し診断テスト社_ヒアリングシート.txt',
   importRecordFileName: '【不確定】J台本取込記録.json'
 };
 
