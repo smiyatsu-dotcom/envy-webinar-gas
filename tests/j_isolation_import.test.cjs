@@ -10,6 +10,8 @@ const CASE = '隔離通し診断テスト社';
 const HEARING = '1ur8hPUElZMrKuitnDo1j1wzr54EkmRY9efNMaEQFErs';
 const FOLDER = '1Ko7cbJ2nW2C4uQbZfDnZjW6mfz_qmHZ0';
 const FILE = '【台本JSON】隔離通し診断テスト社.txt';
+const SNAPSHOT = '【保全】J台本取込前台本.txt';
+const RECORD = '【不確定】J台本取込記録.json';
 
 let passed = 0;
 function test(name, fn) {
@@ -60,6 +62,9 @@ test('source pins the supplied old and next script hashes plus the literal isola
   assert.match(source, /1Ko7cbJ2nW2C4uQbZfDnZjW6mfz_qmHZ0/);
   assert.match(source, /a3d6e2cd4eaaaf57dacf64818ca33486cac14d907b6de562a48868da9404918a/);
   assert.match(source, /7eb361136315b71a1505d50e94cbeef12d28feb1846631ec67370072e5331645/);
+  assert.match(source, /【保全】J台本取込前台本\.txt/);
+  assert.match(source, /【不確定】J台本取込記録\.json/);
+  assert.match(source, /automaticRetry: false/);
   assert.match(source, /processImports_\(\)/);
   assert.doesNotMatch(source.slice(source.indexOf('function 隔離通し_J台本を正規取込する')), /processNewFlow_\(\)/);
 });
@@ -68,7 +73,7 @@ test('read-only preflight identifies exactly one fixed folder, row, and unapprov
   const { G } = fixture();
   const result = G.隔離通し_J台本取込を検査();
   assert.deepStrictEqual(JSON.parse(JSON.stringify(result)), {
-    ok: true, caseName: CASE, folderId: FOLDER, managementRow: 2,
+    ok: true, caseName: CASE, folderId: FOLDER, managementRow: 2, registryRow: 2,
     kouseiSheetId: '1YvJszV8Mz1tN1DVZ9xOIY5D7XGW754QQFVU_oyi34AQ',
     currentScriptSha256: G.隔離通し_J台本_旧SHA256,
     expectedNextScriptSha256: G.隔離通し_J台本_SHA256,
@@ -76,7 +81,7 @@ test('read-only preflight identifies exactly one fixed folder, row, and unapprov
   });
 });
 
-test('exact 106-row script reaches only processImports_ and remains unapproved/undelivered', () => {
+test('exact 106-row script snapshots before processImports_ and remains unapproved/undelivered', () => {
   const { G, script, ledger, nextText } = fixture();
   let imports = 0;
   G.processNewFlow_ = () => { throw new Error('new-flow must not run'); };
@@ -90,6 +95,12 @@ test('exact 106-row script reaches only processImports_ and remains unapproved/u
   assert.strictEqual(result.status, 'レビュー待ち');
   assert.strictEqual(result.mode, 'processImports-only');
   assert.strictEqual(ledger.getSheets()[0].getRange('C2').getValue(), 'レビュー待ち');
+  const snapshot = script.parent.getFilesByName(SNAPSHOT).next();
+  const record = script.parent.getFilesByName(RECORD).next();
+  assert.strictEqual(snapshot.content, exactRows('old-'));
+  assert.strictEqual(JSON.parse(record.content).status, 'completed');
+  assert.strictEqual(JSON.parse(record.content).automaticRetry, false);
+  assert.throws(() => G.隔離通し_J台本取込を検査(), /自動再実行せず/);
 });
 
 test('wrong payload or another importable ledger row fails before the fixed script is replaced', () => {
@@ -99,6 +110,44 @@ test('wrong payload or another importable ledger row fails before the fixed scri
   ledger.getSheets()[0].appendRow(['other', '他社_ヒアリングシート', 'AI出力待ち', 'https://docs.google.com/spreadsheets/d/other/edit', '', '', '', '新']);
   assert.throws(() => G.隔離通し_J台本取込を検査(), /固定の新フロー1件|固定fixture以外/);
   assert.strictEqual(script.content, oldText);
+});
+
+test('a non-importable duplicate hearing row fails before any J script replacement', () => {
+  const { G, script, ledger, oldText } = fixture();
+  // This row does not use the new flow and is already complete, so the old
+  // importable-row-only condition would have missed it. registry_ would pick it.
+  ledger.getSheets()[0].appendRow([HEARING, '別名_ヒアリングシート', '完了', '', '', '', '', '']);
+  assert.throws(() => G.隔離通し_J台本取込を検査(), /非空データ行が1件|ヒアリングIDが台帳で一意/);
+  assert.strictEqual(script.content, oldText);
+  assert.strictEqual(script.parent.getFilesByName(SNAPSHOT).hasNext(), false);
+  assert.strictEqual(script.parent.getFilesByName(RECORD).hasNext(), false);
+});
+
+test('a registry target that differs from the fixed row fails before any J script replacement', () => {
+  const { G, script, oldText } = fixture();
+  G.registry_ = () => ({ [HEARING]: 99 });
+  assert.throws(() => G.隔離通し_J台本取込を検査(), /registry更新先/);
+  assert.strictEqual(script.content, oldText);
+  assert.strictEqual(script.parent.getFilesByName(SNAPSHOT).hasNext(), false);
+  assert.strictEqual(script.parent.getFilesByName(RECORD).hasNext(), false);
+});
+
+test('a processImports_ failure records uncertainty, preserves the old snapshot, and forbids retry', () => {
+  const { G, script, nextText } = fixture();
+  let imports = 0;
+  G.processImports_ = () => { imports++; throw new Error('simulated import failure'); };
+  assert.throws(() => G.隔離通し_J台本を正規取込する(nextText), /結果が不確定.*自動再実行せず/);
+  assert.strictEqual(imports, 1);
+  assert.strictEqual(script.content, nextText);
+  const snapshot = script.parent.getFilesByName(SNAPSHOT).next();
+  const record = JSON.parse(script.parent.getFilesByName(RECORD).next().content);
+  assert.strictEqual(snapshot.content, exactRows('old-'));
+  assert.strictEqual(record.status, 'uncertain');
+  assert.strictEqual(record.currentScriptSha256, G.隔離通し_J台本_SHA256);
+  assert.strictEqual(record.automaticRetry, false);
+  assert.throws(() => G.隔離通し_J台本取込を検査(), /自動再実行せず/);
+  assert.throws(() => G.隔離通し_J台本を正規取込する(nextText), /自動再実行せず/);
+  assert.strictEqual(imports, 1);
 });
 
 console.log('pass ' + passed);
