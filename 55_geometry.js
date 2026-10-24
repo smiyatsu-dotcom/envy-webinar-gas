@@ -25,6 +25,39 @@ function geometryMapSelector_(element, role) {
   selector.text = text;
   return selector;
 }
+// A durable layout record is the authoritative selector when a regenerated
+// page already has an approved correction.  Object IDs are still never
+// persisted: this resolves the one live element only while the generator is
+// producing the map.  In particular, it prevents No.40's generic edited
+// heading and its formatting-only heading scan from creating two candidates.
+function geometryActiveRecordForSlide_(folder, company, slideNo) {
+  const f = activeGeometryFile_(folder, company);
+  if (!f) return null;
+  let spec;
+  try { spec = JSON.parse(f.getBlob().getDataAsString('UTF-8')); }
+  catch (e) { throw new Error('配置指定JSONを読めません'); }
+  if (!spec || spec.schema !== GEOMETRY_SCHEMA || spec.caseName !== company || !Array.isArray(spec.records)) {
+    throw new Error('配置指定の案件またはschemaが一致しません');
+  }
+  const matches = spec.records.filter(function(record) {
+    return record && record.status === 'active' && Number(record.slideNo) === Number(slideNo) &&
+      record.selector && validGeometry_(record.selector.templateGeometry) && validGeometry_(record.after);
+  });
+  if (matches.length > 1) throw new Error('No.' + slideNo + ' の有効な配置指定が複数あります');
+  return matches[0] || null;
+}
+function geometryTargetFromActiveRecord_(folder, company, slideNo, slide) {
+  const record = geometryActiveRecordForSlide_(folder, company, slideNo);
+  if (!record) return { record: null, element: null };
+  const elements = slide && typeof slide.getPageElements === 'function' ? slide.getPageElements() : [];
+  const matches = elements.filter(function(element) {
+    try {
+      return String(element.getPageElementType()) === 'SHAPE' &&
+        !!elementText_(element).trim() && selectorMatches_(element, record.selector);
+    } catch (e) { return false; }
+  });
+  return { record: record, element: matches.length === 1 ? matches[0] : null };
+}
 function writeGeometrySlideMap_(folder, company, presentationId, pageIds, pres, targetElements) {
   const live={};pres.getSlides().forEach(function(s){live[s.getObjectId()]=s;}); const pages=[];
   Object.keys(pageIds || {}).map(Number).sort(function(a,b){return a-b;}).forEach(function(no){

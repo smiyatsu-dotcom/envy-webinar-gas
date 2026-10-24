@@ -18,6 +18,18 @@ const normalRuntime={resolve:()=>map,revision:()=>map.presentationRevision,open:
 assert.strictEqual(ctx.normalGeometryRead_({caseName:'A社',slideNo:1},normalRuntime).target.objectId,'hero');assert.strictEqual(ctx.normalGeometryRead_({caseName:'A社',slideNo:12},normalRuntime).target.objectId,'heading12');
 let replacement='';ctx.filesByName_=()=>it([{setContent:t=>replacement=t}]);const next=slide('new1',[image('a'),image('b')]);ctx.writeGeometrySlideMap_(folder,'A社','deck-2',{1:'new1'},{getSlides:()=>[next]},{1:[{id:'a',type:'IMAGE',role:'primary-image'},{id:'b',type:'IMAGE',role:'primary-image'}]});const updated=JSON.parse(replacement);assert.strictEqual(updated.presentationId,'deck-2');assert.strictEqual(updated.pages[0].targetSelector,undefined);console.log('ok generated v2 map: live IMAGE or explicit editable heading SHAPE only');
 const editable=(id,text,top)=>({getObjectId:()=>id,getTop:()=>top,getWidth:()=>500,getHeight:()=>60,getText:()=>({asString:()=>text})});const genericPage={getShapes:()=>[editable('heading','新しい見出し',30),editable('body','本文',240)]};assert.strictEqual(ctx.generatorEditedHeading_(genericPage,{heading:'旧見出し',body:'本文'}).getObjectId(),'heading');const ambiguousPage={getShapes:()=>[editable('one','見出し1',20),editable('two','見出し2',70)]};assert.strictEqual(ctx.generatorEditedHeading_(ambiguousPage,{}),null);console.log('ok generated v2 map: live IMAGE or explicit editable heading SHAPE only');
+// No.40 must follow the existing durable record, not whichever heading the
+// common text replacement or the formatting-only top scan happened to see.
+const placedHeading=(id,text,g)=>({getObjectId:()=>id,getPageElementType:()=> 'SHAPE',getTitle:()=>'',getDescription:()=>'',getLeft:()=>g.left,getTop:()=>g.top,getWidth:()=>g.width,getHeight:()=>g.height,asShape:()=>({getText:()=>({asString:()=>text})})});
+const durableBefore={left:40.44094488188976,top:37.21555118110236,width:639.1181102362204,height:47.40944881889764};
+const commonCandidate=placedHeading('common-edited','共通候補',{left:40,top:10,width:300,height:50});
+const durableCandidate=placedHeading('durable-heading','永続配置の見出し',durableBefore);
+ctx.filesByName_=()=>it([{getBlob:()=>({getDataAsString:()=>JSON.stringify({schema:'consultation-slide-geometry/v2',caseName:'A社',records:[{status:'active',slideNo:40,selector:{type:'SHAPE',title:'',description:'',templateGeometry:durableBefore,text:'永続配置の見出し'},after:{...durableBefore,top:40}}]})})}]);
+const no40=ctx.geometryTargetFromActiveRecord_({},'A社',40,slide('p40',[commonCandidate,durableCandidate]));
+assert.strictEqual(no40.record.slideNo,40);assert.strictEqual(no40.element.getObjectId(),'durable-heading');assert.notStrictEqual(no40.element.getObjectId(),commonCandidate.getObjectId());
+ctx.filesByName_=()=>it([{getBlob:()=>({getDataAsString:()=>JSON.stringify({schema:'consultation-slide-geometry/v2',caseName:'A社',records:[{status:'active',slideNo:40,selector:{type:'SHAPE',title:'',description:'',templateGeometry:durableBefore},after:{...durableBefore,top:40}},{status:'active',slideNo:40,selector:{type:'SHAPE',title:'',description:'',templateGeometry:durableBefore},after:{...durableBefore,top:40}}]})})}]);
+assert.throws(()=>ctx.geometryTargetFromActiveRecord_({},'A社',40,slide('p40',[durableCandidate])),/複数/);
+console.log('ok No.40 geometry: durable selector wins over a distinct common candidate and duplicate records fail closed');
 // The public normal endpoint may exercise exactly one fixed isolation case,
 // but no spelling variation or other case can select its separate ledger.
 const normalCfg={kind:'normal'}, isolationCfg={ISOLATION_TEST:true,MGMT_SHEET_ID:ctx.隔離通し_生成_台帳ID,OUTPUT_FOLDER_ID:ctx.隔離通し_生成_生成物rootID};
@@ -27,8 +39,11 @@ assert.strictEqual(ctx.normalGeometryConfigForCase_(ctx.ISOLATION_GEOMETRY_CASE+
 assert.strictEqual(ctx.normalGeometryConfigForCase_('A社'),normalCfg);
 assert.throws(()=>{ctx.隔離通し_生成設定を作る_=()=>({ISOLATION_TEST:true,MGMT_SHEET_ID:'other',OUTPUT_FOLDER_ID:ctx.隔離通し_生成_生成物rootID});ctx.normalGeometryConfigForCase_(ctx.ISOLATION_GEOMETRY_CASE);},/固定隔離案件/);
 console.log('ok normal geometry: only the exact fixed isolation case selects its verified ledger');
-// No.40 is an explicit generator-owned heading: it is registered before the
-// saved deck is reopened, so the v2 map can keep a selector rather than an id.
+// No.40 resolves the exact durable heading when a correction exists. The
+// Arial formatter still scans its topmost text, but it is no longer a second
+// geometry candidate that can suppress targetSelector.
 const slidesSource=fs.readFileSync(path.join(root,'50_slides.js'),'utf8');
-assert.match(slidesSource,/if \(def\.no === 40\)[\s\S]*?addGeometryTarget\(def\.no, top, 'heading'\)/);
-console.log('ok generated v2 map: No.40 registers only its generator-selected heading');
+assert.match(slidesSource,/if \(def\.no === 40\)[\s\S]*?geometryTargetFromActiveRecord_/);
+assert.doesNotMatch(slidesSource,/addGeometryTarget\(def\.no, top, 'heading'\)/);
+assert.match(slidesSource,/if \(no40UsesDurableRecord\)[\s\S]*?geometryTargets\[def\.no\] = \[\]/);
+console.log('ok generated v2 map: No.40 records the durable-selected heading only');

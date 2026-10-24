@@ -645,3 +645,150 @@ function スライド_承認済み配置を適用(plan){
   return {ok:true,proposalId:plan.proposalId,revision:1,planHash:plan.planHash,before:snap.before,after:actual,geometryVerified:true,durableGeometryVerified:true};
 }
 
+// One-time repair for the already-completed J isolation deck.  It is not a
+// regeneration path: it can only add the missing No.40 selector to the one
+// map revision captured below, after preserving that exact input.  No caller
+// supplies a folder, deck, page, or object identifier.
+var 隔離通し_J_No40配置対応修復_ = {
+  folderId: '1Ko7cbJ2nW2C4uQbZfDnZjW6mfz_qmHZ0',
+  deckId: '1wLXXeU95iculuFJ_NOQ5oSZ3PSSWXLRa_L6m2GuX_vM',
+  mapFileName: '【スライド対応】隔離通し診断テスト社.json',
+  geometryFileName: '【配置指定】隔離通し診断テスト社.json',
+  scriptFileName: '【台本JSON】隔離通し診断テスト社.txt',
+  importRecordFileName: '【不確定】J台本取込記録.json',
+  backupFileName: '【保全】J_No40配置対応修復前.json',
+  recordFileName: '【不確定】J_No40配置対応修復記録.json',
+  mapSha256: '477bac3e4b30c257cd15a5645d2017457d57687ecaacf3b778d4bc646b1c824c',
+  geometrySha256: '91b904507adc0ef016bc4761dfcbc42623423c70b57340513fc883934034e64e'
+};
+function 隔離通し_J_No40配置対応修復_sha256_(text) { return 隔離通し_J台本_sha256_(String(text)); }
+function 隔離通し_J_No40配置対応修復_同名1件_(folder, name, label) {
+  var file = 隔離通し_同名ファイル1件_(folder, name, label);
+  if (!file) throw new Error(label + ' が固定隔離案件にありません');
+  return file;
+}
+function 隔離通し_J_No40配置対応修復_後状態一致_(element, selector, after) {
+  try {
+    var label = elementLabel_(element);
+    if (label.type !== 'SHAPE' || label.title !== String(selector.title || '') || label.description !== String(selector.description || '') ||
+        !sameGeometry_(geometryOf_(element), after) || !elementText_(element).trim()) return false;
+    return !Object.prototype.hasOwnProperty.call(selector, 'text') || elementText_(element) === selector.text;
+  } catch (e) { return false; }
+}
+function 隔離通し_J_No40配置対応修復_対象を読む_() {
+  var c = 隔離通し_J_No40配置対応修復_;
+  var cfg = 隔離通し_生成設定を作る_();
+  var output = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+  if (cfg.ISOLATION_TEST !== true || output.getId() !== 隔離通し_生成_生成物rootID || output.getName() !== '【出力】生成物') {
+    throw new Error('J_No40修復の生成物rootが固定隔離fixtureと一致しません');
+  }
+  var folder = caseFolderIfExists_(cfg, 隔離通し_生成_案件名);
+  if (!folder || folder.getId() !== c.folderId || folder.getName() !== 隔離通し_生成_案件名) throw new Error('J_No40修復の案件フォルダが固定隔離fixtureと一致しません');
+  隔離通し_生成の親を確かめる_(folder, output.getId(), 'J_No40修復の案件フォルダ');
+  if (隔離通し_同名ファイル1件_(folder, c.backupFileName, 'J_No40修復前の保全') ||
+      隔離通し_同名ファイル1件_(folder, c.recordFileName, 'J_No40修復記録')) {
+    throw new Error('J_No40配置対応修復の保全または記録が既にあります。自動再実行せず手動精査してください');
+  }
+  var mapFile = 隔離通し_J_No40配置対応修復_同名1件_(folder, c.mapFileName, 'J_No40修復のスライド対応表');
+  var geometryFile = 隔離通し_J_No40配置対応修復_同名1件_(folder, c.geometryFileName, 'J_No40修復の配置指定');
+  var scriptFile = 隔離通し_J_No40配置対応修復_同名1件_(folder, c.scriptFileName, 'J_No40修復の台本JSON');
+  var importRecordFile = 隔離通し_J_No40配置対応修復_同名1件_(folder, c.importRecordFileName, 'J_No40修復の取込記録');
+  var mapText = mapFile.getBlob().getDataAsString('UTF-8');
+  var geometryText = geometryFile.getBlob().getDataAsString('UTF-8');
+  var scriptText = scriptFile.getBlob().getDataAsString('UTF-8');
+  if (隔離通し_J_No40配置対応修復_sha256_(mapText) !== c.mapSha256 ||
+      隔離通し_J_No40配置対応修復_sha256_(geometryText) !== c.geometrySha256 ||
+      隔離通し_J台本_sha256_(scriptText) !== 隔離通し_J台本_SHA256) {
+    throw new Error('J_No40修復の固定入力hashが一致しません');
+  }
+  var importRecord;
+  try { importRecord = JSON.parse(importRecordFile.getBlob().getDataAsString('UTF-8')); }
+  catch (e) { throw new Error('J_No40修復の取込記録JSONを読めません'); }
+  if (!importRecord || importRecord.status !== 'completed' || importRecord.folderId !== c.folderId ||
+      importRecord.targetScriptSha256 !== 隔離通し_J台本_SHA256 || importRecord.automaticRetry !== false) {
+    throw new Error('J_No40修復のJ台本取込completed記録が一致しません');
+  }
+  var map, geometry;
+  try { map = JSON.parse(mapText); } catch (e) { throw new Error('J_No40修復のスライド対応表JSONを読めません'); }
+  try { geometry = JSON.parse(geometryText); } catch (e) { throw new Error('J_No40修復の配置指定JSONを読めません'); }
+  if (!map || map.schema !== GEOMETRY_MAP_SCHEMA || map.caseName !== 隔離通し_生成_案件名 || map.presentationId !== c.deckId ||
+      !Array.isArray(map.pages) || map.pages.length !== 106 || map.pages.some(function(page, index) { return !page || page.slideNo !== index + 1 || typeof page.pageId !== 'string'; })) {
+    throw new Error('J_No40修復の対応表が固定106枚deckと一致しません');
+  }
+  var page = map.pages[39];
+  if (Object.prototype.hasOwnProperty.call(page, 'targetSelector')) throw new Error('J_No40修復の対象selectorは既にあります');
+  if (!geometry || geometry.schema !== GEOMETRY_SCHEMA || geometry.caseName !== 隔離通し_生成_案件名 || !Array.isArray(geometry.records)) {
+    throw new Error('J_No40修復の配置指定が固定案件と一致しません');
+  }
+  var records = geometry.records.filter(function(record) {
+    return record && record.status === 'active' && Number(record.slideNo) === 40 && record.selector &&
+      validGeometry_(record.selector.templateGeometry) && validGeometry_(record.after);
+  });
+  if (records.length !== 1 || String(records[0].selector.type) !== 'SHAPE') throw new Error('J_No40修復の有効なNo.40配置指定が一意ではありません');
+  var deck = DriveApp.getFileById(c.deckId);
+  var parents = deck.getParents();
+  if (deck.isTrashed() || deck.getMimeType() !== MimeType.GOOGLE_SLIDES || !parents.hasNext() || parents.next().getId() !== folder.getId() || parents.hasNext()) {
+    throw new Error('J_No40修復の現行deckが固定隔離案件に一意にありません');
+  }
+  return { cfg: cfg, folder: folder, mapFile: mapFile, mapText: mapText, map: map, page: page, record: records[0] };
+}
+/**
+ * Mutates only the fixed map file after exact input verification.  This
+ * function intentionally does not call processImports_, スライドを組む_,
+ * processNewFlow_, saveAndClose, delivery, notification, or audio code.
+ */
+function 隔離通し_J_No40配置対応を一度修復する() {
+  var target = 隔離通し_J_No40配置対応修復_対象を読む_();
+  return withIsolationTestConfig_(target.cfg, function() {
+    var c = 隔離通し_J_No40配置対応修復_;
+    var backup = target.folder.createFile(c.backupFileName, target.mapText, MimeType.PLAIN_TEXT);
+    var repairRecord = target.folder.createFile(c.recordFileName, JSON.stringify({
+      schema: 'isolation-j-no40-map-repair/v1', status: 'prepared', automaticRetry: false,
+      folderId: c.folderId, deckId: c.deckId, mapSha256Before: c.mapSha256,
+      geometrySha256: c.geometrySha256, scriptSha256: 隔離通し_J台本_SHA256,
+      backupFileId: backup.getId(), recordedAt: new Date().toISOString()
+    }), MimeType.PLAIN_TEXT);
+    try {
+      var slides = SlidesApp.openById(c.deckId).getSlides();
+      var slide = slides.filter(function(item) { return item.getObjectId() === target.page.pageId; });
+      if (slide.length !== 1) throw new Error('J_No40修復のmap pageIdが現行deckに一意にありません');
+      var candidates = slide[0].getPageElements().filter(function(element) {
+        return 隔離通し_J_No40配置対応修復_後状態一致_(element, target.record.selector, target.record.after);
+      });
+      if (candidates.length !== 1) throw new Error('J_No40修復の配置指定afterが現行deckのheadingへ一意に一致しません');
+      var selector = geometryMapSelector_(candidates[0], 'heading');
+      if (!selector || !sameGeometry_(selector.templateGeometry, target.record.after)) throw new Error('J_No40修復の現行heading selectorを生成できません');
+      var next = JSON.parse(JSON.stringify(target.map));
+      next.pages[39].targetSelector = selector;
+      var nextText = JSON.stringify(next);
+      target.mapFile.setContent(nextText);
+      var readback = target.mapFile.getBlob().getDataAsString('UTF-8');
+      var saved = JSON.parse(readback), savedSelector = saved.pages && saved.pages[39] && saved.pages[39].targetSelector;
+      if (!savedSelector || JSON.stringify(savedSelector) !== JSON.stringify(selector) ||
+          隔離通し_J_No40配置対応修復_sha256_(readback) !== 隔離通し_J_No40配置対応修復_sha256_(nextText)) {
+        throw new Error('J_No40修復のmap読戻しが一致しません');
+      }
+      repairRecord.setContent(JSON.stringify({
+        schema: 'isolation-j-no40-map-repair/v1', status: 'completed', automaticRetry: false,
+        folderId: c.folderId, deckId: c.deckId, mapSha256Before: c.mapSha256,
+        mapSha256After: 隔離通し_J_No40配置対応修復_sha256_(readback), geometrySha256: c.geometrySha256,
+        scriptSha256: 隔離通し_J台本_SHA256, backupFileId: backup.getId(), repairedAt: new Date().toISOString()
+      }));
+      return { ok: true, mode: 'fixed-map-only-repair', folderId: c.folderId, deckId: c.deckId,
+        slideNo: 40, mapSha256Before: c.mapSha256,
+        mapSha256After: 隔離通し_J_No40配置対応修復_sha256_(readback), readback: true,
+        actions: { imported: false, regenerated: false, deckSaved: false, delivered: false, notified: false, audioStarted: false } };
+    } catch (e) {
+      var failure = String(e && e.message ? e.message : e).replace(/[\r\n]+/g, ' ').slice(0, 240);
+      try { repairRecord.setContent(JSON.stringify({
+        schema: 'isolation-j-no40-map-repair/v1', status: 'uncertain', automaticRetry: false,
+        folderId: c.folderId, deckId: c.deckId, mapSha256Before: c.mapSha256,
+        geometrySha256: c.geometrySha256, scriptSha256: 隔離通し_J台本_SHA256,
+        backupFileId: backup.getId(), failure: failure, recordedAt: new Date().toISOString()
+      })); } catch (ignore) { }
+      throw new Error('J_No40配置対応修復の結果が不確定です。自動再実行せず、固定隔離案件の保全・記録を手動精査してください: ' + failure);
+    }
+  });
+}
+function runIsolationJNo40MapRepair() { return 隔離通し_J_No40配置対応を一度修復する(); }
+

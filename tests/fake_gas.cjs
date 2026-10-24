@@ -105,7 +105,7 @@ function makeEnv() {
     const id = 'F' + (++seq) + 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
     const f = {
       id, name, content: content || '', mime: mime || 'text/plain', parent, trashed: false, updated: new Date(Date.UTC(2026, 8, 26, 1, 0, seq)),
-      getId: () => id, getName: () => f.name, getMimeType: () => f.mime, getUrl: () => 'https://drive/' + id,
+      getId: () => id, getName: () => f.name, getMimeType: () => f.mime, getUrl: () => 'https://drive/' + id, isTrashed: () => f.trashed,
       getLastUpdated: () => f.updated,
       getBlob: () => ({ getDataAsString: () => f.content }),
       setName: (n) => { log.push(['rename', f.parent.path + '/' + f.name, n]); f.name = n; return f; },
@@ -152,7 +152,7 @@ function makeEnv() {
     })
   };
   const LockService = { getScriptLock: () => ({ tryLock: () => true, waitLock: () => {}, releaseLock: () => {} }) };
-  const MimeType = { GOOGLE_SHEETS: 'application/vnd.google-apps.spreadsheet', GOOGLE_DOCS: 'application/vnd.google-apps.document', PLAIN_TEXT: 'text/plain' };
+  const MimeType = { GOOGLE_SHEETS: 'application/vnd.google-apps.spreadsheet', GOOGLE_DOCS: 'application/vnd.google-apps.document', GOOGLE_SLIDES: 'application/vnd.google-apps.presentation', PLAIN_TEXT: 'text/plain' };
   const Logger = { log: () => {} };
   const ScriptApp = { getService: () => ({ getUrl: () => '' }), getProjectTriggers: () => [] };
   const Utilities = {

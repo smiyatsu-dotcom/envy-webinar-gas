@@ -108,7 +108,26 @@ function generateSlides_(kouseiSheetId, opt) {
     try { fillReal_(slide, def, row, data, warnings); }
     catch (e) { warnings.push('No.' + def.no + ' テキスト差し替え失敗: ' + e); }
     const editedHeading = generatorEditedHeading_(slide, headingBefore);
-    if (editedHeading) addGeometryTarget(def.no, editedHeading, 'heading');
+    let geometryHeading = editedHeading;
+    let no40UsesDurableRecord = false;
+    if (def.no === 40) {
+      // The approved No.40 correction, if present, names the heading by its
+      // durable selector.  Do not pick a shape merely because it is topmost:
+      // the formatter's top scan and the common edited-heading scan can name
+      // different live objects.  No unique durable match means no selector.
+      try {
+        const durable = geometryTargetFromActiveRecord_(outFolder, caseCompany_(data.name), def.no, slide);
+        if (durable.record) {
+          no40UsesDurableRecord = true;
+          geometryHeading = durable.element;
+          if (!geometryHeading) warnings.push('No.40 の配置指定対象が一意に一致しないため配置対応表へ記録しません');
+        }
+      } catch (e) {
+        geometryHeading = null;
+        warnings.push('No.40 の配置指定対象を確認できないため配置対応表へ記録しません: ' + e);
+      }
+    }
+    if (geometryHeading) addGeometryTarget(def.no, geometryHeading, 'heading');
 
     // No.92/95: 「以上」は大きくしない(大きくするのは金額の数字のみ)
     if (def.no === 92 || def.no === 95) {
@@ -130,11 +149,6 @@ function generateSlides_(kouseiSheetId, opt) {
         });
         if (top) {
           top.getText().getTextStyle().setFontFamily('Arial');
-          // This is a generator-selected editable heading, not an element
-          // inferred from a consultation request.  Record it so the final
-          // reopened deck can expose the v2 selector for the fixed No.40
-          // isolation regression without persisting an object id.
-          addGeometryTarget(def.no, top, 'heading');
         }
       } catch (e) { }
     }
@@ -147,7 +161,17 @@ function generateSlides_(kouseiSheetId, opt) {
     try { setNotesText_(slide, normalizeWebinarTerms_(row.daihon || '')); }
     catch (e) { throw new Error('No.' + def.no + ' ノート設定失敗: ' + e); }
 
-    try { const selected = replaceImages_(slide, def, row, data, zukaiFolder, idx, targets, warnings); (selected || []).forEach(function (item) { addGeometryTarget(def.no, item); }); }
+    try {
+      const selected = replaceImages_(slide, def, row, data, zukaiFolder, idx, targets, warnings);
+      if (no40UsesDurableRecord) {
+        // The durable No.40 record is the one approved movable object.  An
+        // image replacement on this page must not reintroduce ambiguity.
+        geometryTargets[def.no] = [];
+        if (geometryHeading) addGeometryTarget(def.no, geometryHeading, 'heading');
+      } else {
+        (selected || []).forEach(function (item) { addGeometryTarget(def.no, item); });
+      }
+    }
     catch (e) { warnings.push('No.' + def.no + ' 画像差し替え失敗: ' + e); }
   });
 

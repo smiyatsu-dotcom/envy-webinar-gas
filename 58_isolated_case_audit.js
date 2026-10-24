@@ -92,6 +92,118 @@ function 隔離通し_資料を検品() {
   };
 }
 
+// This is intentionally separate from ISOLATED_CASE_AUDIT_: that older audit
+// is pinned to a historical deck.  The J audit can inspect only the one
+// completed, non-customer isolation output and never accepts a Drive ID.
+const ISOLATED_J_CURRENT_AUDIT_ = {
+  folderId: '1Ko7cbJ2nW2C4uQbZfDnZjW6mfz_qmHZ0',
+  deckId: '1wLXXeU95iculuFJ_NOQ5oSZ3PSSWXLRa_L6m2GuX_vM',
+  mapFileName: '【スライド対応】隔離通し診断テスト社.json',
+  geometryFileName: '【配置指定】隔離通し診断テスト社.json',
+  scriptFileName: '【台本JSON】隔離通し診断テスト社.txt',
+  textFileName: '【台本】隔離通し診断テスト社.txt',
+  importRecordFileName: '【不確定】J台本取込記録.json'
+};
+
+function isolatedJCurrentFile_(folder, name, label) {
+  const file = 隔離通し_同名ファイル1件_(folder, name, label);
+  if (!file) throw new Error(label + ' が固定隔離案件にありません');
+  return file;
+}
+function isolatedJCurrentText_(slide) {
+  try { return String(slide.getNotesPage().getSpeakerNotesShape().getText().asString() || '').replace(/\r\n/g, '\n').replace(/\n+$/g, ''); }
+  catch (e) { return ''; }
+}
+function isolatedJCurrentAudioText_(notes) {
+  const parts = notes.map(function(text) {
+    return String(text || '').replace(/（挙手ありがとうございます。?）/g, '').trim();
+  }).filter(function(text) { return !!text; });
+  return parts.join('\n\n') + '\n';
+}
+function isolatedJCurrentAuditTarget_() {
+  const c = ISOLATED_J_CURRENT_AUDIT_;
+  const cfg = 隔離通し_生成設定を作る_();
+  const output = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+  if (cfg.ISOLATION_TEST !== true || output.getId() !== 隔離通し_生成_生成物rootID || output.getName() !== '【出力】生成物') {
+    throw new Error('J現行検品の生成物rootが固定隔離fixtureと一致しません');
+  }
+  const folder = caseFolderIfExists_(cfg, 隔離通し_生成_案件名);
+  if (!folder || folder.getId() !== c.folderId || folder.getName() !== 隔離通し_生成_案件名) {
+    throw new Error('J現行検品の案件フォルダが固定隔離fixtureと一致しません');
+  }
+  隔離通し_生成の親を確かめる_(folder, output.getId(), 'J現行検品の案件フォルダ');
+  const mapFile = isolatedJCurrentFile_(folder, c.mapFileName, 'J現行スライド対応表');
+  const geometryFile = isolatedJCurrentFile_(folder, c.geometryFileName, 'J現行配置指定');
+  const scriptFile = isolatedJCurrentFile_(folder, c.scriptFileName, 'J現行台本JSON');
+  const textFile = isolatedJCurrentFile_(folder, c.textFileName, 'J現行音声台本TXT');
+  const recordFile = isolatedJCurrentFile_(folder, c.importRecordFileName, 'J台本取込記録');
+  const scriptText = scriptFile.getBlob().getDataAsString('UTF-8');
+  隔離通し_J台本_本文を検証する_(scriptText);
+  let importRecord;
+  try { importRecord = JSON.parse(recordFile.getBlob().getDataAsString('UTF-8')); }
+  catch (e) { throw new Error('J台本取込記録JSONを読めません'); }
+  if (!importRecord || importRecord.status !== 'completed' || importRecord.folderId !== c.folderId ||
+      importRecord.targetScriptSha256 !== 隔離通し_J台本_SHA256 || importRecord.automaticRetry !== false) {
+    throw new Error('J台本取込completed記録が固定条件と一致しません');
+  }
+  let mapping, geometry;
+  try { mapping = JSON.parse(mapFile.getBlob().getDataAsString('UTF-8')); }
+  catch (e) { throw new Error('J現行スライド対応表JSONを読めません'); }
+  try { geometry = JSON.parse(geometryFile.getBlob().getDataAsString('UTF-8')); }
+  catch (e) { throw new Error('J現行配置指定JSONを読めません'); }
+  if (!mapping || mapping.schema !== GEOMETRY_MAP_SCHEMA || mapping.caseName !== 隔離通し_生成_案件名 ||
+      mapping.presentationId !== c.deckId || !Array.isArray(mapping.pages) || mapping.pages.length !== 106 ||
+      mapping.pages.some(function(page, index) { return !page || page.slideNo !== index + 1 || typeof page.pageId !== 'string'; })) {
+    throw new Error('J現行スライド対応表が固定106枚deckを示しません');
+  }
+  if (!geometry || geometry.schema !== GEOMETRY_SCHEMA || geometry.caseName !== 隔離通し_生成_案件名 || !Array.isArray(geometry.records)) {
+    throw new Error('J現行配置指定が固定案件と一致しません');
+  }
+  const deckFile = DriveApp.getFileById(c.deckId);
+  const parents = deckFile.getParents();
+  if (deckFile.isTrashed() || deckFile.getMimeType() !== MimeType.GOOGLE_SLIDES || !parents.hasNext() || parents.next().getId() !== folder.getId() || parents.hasNext()) {
+    throw new Error('J現行deckが固定隔離案件フォルダに一意にありません');
+  }
+  return { cfg: cfg, folder: folder, mapping: mapping, geometry: geometry, deckFile: deckFile,
+    scriptHash: 隔離通し_J台本_sha256_(scriptText), text: textFile.getBlob().getDataAsString('UTF-8') };
+}
+
+/**
+ * Read-only reconciliation for the one completed J output.  It neither saves
+ * the presentation nor calls import, regeneration, map repair, delivery,
+ * notification, or audio code.
+ */
+function 隔離通し_J現行資料を読取検品() {
+  const target = isolatedJCurrentAuditTarget_();
+  return withIsolationTestConfig_(target.cfg, function() {
+    const slides = SlidesApp.openById(ISOLATED_J_CURRENT_AUDIT_.deckId).getSlides();
+    const byId = {};
+    slides.forEach(function(slide) { byId[slide.getObjectId()] = slide; });
+    if (slides.length !== 106 || target.mapping.pages.some(function(page) { return !byId[page.pageId]; })) {
+      throw new Error('J現行deckが対応表の固定106ページと一致しません');
+    }
+    const notes = target.mapping.pages.map(function(page) { return isolatedJCurrentText_(byId[page.pageId]); });
+    const textMatchesNotes = isolatedJCurrentAudioText_(notes) === target.text;
+    const geometry = target.geometry.records.filter(function(record) { return record && record.status === 'active'; }).map(function(record) {
+      const page = target.mapping.pages[Number(record.slideNo) - 1];
+      const selector = page && page.targetSelector;
+      const elements = page && byId[page.pageId] ? byId[page.pageId].getPageElements() : [];
+      const matches = selector ? elements.filter(function(element) {
+        try { return selectorMatches_(element, selector); } catch (e) { return false; }
+      }) : [];
+      const selectorAfter = !!selector && validGeometry_(record.after) && sameGeometry_(selector.templateGeometry, record.after);
+      return { slideNo: record.slideNo, mapSelector: !!selector, selectorAfter: selectorAfter,
+        currentDeckMatches: matches.length, retained: selectorAfter && matches.length === 1 };
+    });
+    const geometryRetained = geometry.length > 0 && geometry.every(function(item) { return item.retained; });
+    return { ok: textMatchesNotes && geometryRetained, mode: 'read-only-current-j-artifact-audit',
+      caseName: 隔離通し_生成_案件名, folderId: target.folder.getId(), deckId: ISOLATED_J_CURRENT_AUDIT_.deckId,
+      slideCount: slides.length, scriptSha256: target.scriptHash, notesTxtMatch: textMatchesNotes,
+      geometry: geometry, actions: { imported: false, regenerated: false, mapRepaired: false, delivered: false, notified: false, audioStarted: false } };
+  });
+}
+function runIsolationCurrentJReadAudit() { return 隔離通し_J現行資料を読取検品(); }
+
 /**
  * Apply only the calculation/write tail of 新の流れを1件進める_ to the fixed case.
  * It never accepts approval/delivery instructions and refuses any non-false B2.
