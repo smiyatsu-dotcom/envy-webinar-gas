@@ -128,7 +128,14 @@ function generateSlides_(kouseiSheetId, opt) {
           if (!s) return;
           if (!top || sh.getTop() < top.getTop()) top = sh;
         });
-        if (top) top.getText().getTextStyle().setFontFamily('Arial');
+        if (top) {
+          top.getText().getTextStyle().setFontFamily('Arial');
+          // This is a generator-selected editable heading, not an element
+          // inferred from a consultation request.  Record it so the final
+          // reopened deck can expose the v2 selector for the fixed No.40
+          // isolation regression without persisting an object id.
+          addGeometryTarget(def.no, top, 'heading');
+        }
       } catch (e) { }
     }
 

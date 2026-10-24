@@ -27,3 +27,8 @@ assert.strictEqual(ctx.normalGeometryConfigForCase_(ctx.ISOLATION_GEOMETRY_CASE+
 assert.strictEqual(ctx.normalGeometryConfigForCase_('A社'),normalCfg);
 assert.throws(()=>{ctx.隔離通し_生成設定を作る_=()=>({ISOLATION_TEST:true,MGMT_SHEET_ID:'other',OUTPUT_FOLDER_ID:ctx.隔離通し_生成_生成物rootID});ctx.normalGeometryConfigForCase_(ctx.ISOLATION_GEOMETRY_CASE);},/固定隔離案件/);
 console.log('ok normal geometry: only the exact fixed isolation case selects its verified ledger');
+// No.40 is an explicit generator-owned heading: it is registered before the
+// saved deck is reopened, so the v2 map can keep a selector rather than an id.
+const slidesSource=fs.readFileSync(path.join(root,'50_slides.js'),'utf8');
+assert.match(slidesSource,/if \(def\.no === 40\)[\s\S]*?addGeometryTarget\(def\.no, top, 'heading'\)/);
+console.log('ok generated v2 map: No.40 registers only its generator-selected heading');
