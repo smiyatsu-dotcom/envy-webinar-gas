@@ -129,18 +129,32 @@ test('strict audit compares all 106 JSON rows to their mapped notes without remo
   // removal can turn either into a pass.
   slides[4].setNote('');
   slides[5].setNote('note-6（挙手ありがとうございます。）');
-  slides[7].setNote('note-8 Zoom');
+  slides[7].setNote('different-8 Zoom');
+  slides[8].setNote('LABEL: note-9');
   slides[8].elements.push(wordArt('visible-zoom', 'ZOOM'));
   const before = env.log.length;
   const result = G.隔離通し_J現行資料を読取検品();
   assert.strictEqual(result.ok, false);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(result.scriptNotes)), {
-    expectedRows: 106, comparedRows: 106, mismatchCount: 3, mismatchNos: [5, 6, 8],
+    expectedRows: 106, comparedRows: 106, mismatchCount: 4, mismatchNos: [5, 6, 8, 9],
     emptyNoteCount: 1, emptyNoteNos: [5], unreadableNoteCount: 0, unreadableNoteNos: []
   });
   assert.deepStrictEqual(JSON.parse(JSON.stringify(result.zoomOccurrences)), { notes: 1, visibleSlides: 1, visibleTextReadErrors: 0 });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.noteDifferenceSummary)), {
+    'exact-match': 101, 'line-ending-only-match': 1, 'empty-note': 1,
+    'note-is-prefix-of-expected': 0, 'note-has-extra-prefix': 1, 'note-has-extra-suffix': 1,
+    'content-difference': 1, 'unreadable-note': 0
+  });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.noteDifferences)), [
+    { no: 5, matches: false, category: 'empty-note', actualLength: 0, expectedLength: 6, firstDifferentCharacter: 1, actualExcerpt: '', expectedExcerpt: 'note-5' },
+    { no: 6, matches: false, category: 'note-has-extra-suffix', actualLength: 21, expectedLength: 6, firstDifferentCharacter: 7, actualExcerpt: 'note-6（挙手ありがとうございます。）', expectedExcerpt: 'note-6' },
+    { no: 8, matches: false, category: 'content-difference', actualLength: 16, expectedLength: 6, firstDifferentCharacter: 1, actualExcerpt: 'different-8 Zoom', expectedExcerpt: 'note-8' },
+    { no: 9, matches: false, category: 'note-has-extra-prefix', actualLength: 13, expectedLength: 6, firstDifferentCharacter: 1, actualExcerpt: 'LABEL: note-9', expectedExcerpt: 'note-9' }
+  ]);
+  assert.strictEqual(result.normalGeneratorExpectation.order[0], 'resolveDaihon_-fixed-before-imported-JSON');
+  assert.ok(result.noteDifferences.every(item => String(item.actualExcerpt || '').length <= 32 && String(item.expectedExcerpt || '').length <= 32));
   const serialized = JSON.stringify(result);
-  assert.doesNotMatch(serialized, /note-6|挙手ありがとうございます|visible-zoom/);
+  assert.doesNotMatch(serialized, /visible-zoom/);
   assert.match(result.normalizedNotesSha256, /^[a-f0-9]{64}$/);
   assert.match(result.visibleSlideTextSha256, /^[a-f0-9]{64}$/);
   assert.strictEqual(env.log.length, before);
@@ -153,6 +167,24 @@ test('strict audit checks each fixed row against both the JSON and current note 
   assert.strictEqual(result.ok, false);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(result.fixedScript.scriptMismatchNos)), [2]);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(result.fixedScript.noteMismatchNos)), [2]);
+});
+
+test('strict audit uses normal-generator fixed precedence for notes while separately reporting raw JSON divergence', () => {
+  const { G, folder } = fixture();
+  const scriptFile = folder.getFilesByName(SCRIPT).next();
+  const rows = JSON.parse(scriptFile.content);
+  rows.find(row => row.no === 105).daihon = 'raw-105-different';
+  rows.find(row => row.no === 106).daihon = 'raw-106-different';
+  scriptFile.content = JSON.stringify(rows);
+  G.隔離通し_J台本_SHA256 = G.隔離通し_J台本_sha256_(scriptFile.content);
+  const record = folder.getFilesByName(IMPORT_RECORD).next();
+  record.content = JSON.stringify({ status: 'completed', automaticRetry: false, folderId: FOLDER, targetScriptSha256: G.隔離通し_J台本_SHA256 });
+  const result = G.隔離通し_J現行資料を読取検品();
+  assert.strictEqual(result.scriptNotes.mismatchCount, 0);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.normalGeneratorExpectation.fixedSourceDivergenceNos)), [105, 106]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.fixedScript.scriptMismatchNos)), [105, 106]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.fixedScript.noteMismatchNos)), []);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.noteDifferences)), []);
 });
 
 test('No.40 map repair preserves exact input, resolves only the durable after-state heading, and fails closed on retry', () => {

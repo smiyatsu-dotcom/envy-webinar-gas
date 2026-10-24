@@ -118,10 +118,65 @@ function isolatedJCurrentNormalizeLineEndings_(value) {
 }
 function isolatedJCurrentNote_(slide) {
   try {
-    return { readable: true, text: isolatedJCurrentNormalizeLineEndings_(slide.getNotesPage().getSpeakerNotesShape().getText().asString()) };
+    const rawText = String(slide.getNotesPage().getSpeakerNotesShape().getText().asString());
+    return { readable: true, rawText: rawText, text: isolatedJCurrentNormalizeLineEndings_(rawText) };
   } catch (e) {
-    return { readable: false, text: '' };
+    return { readable: false, rawText: '', text: '' };
   }
+}
+// Reproduce the normal generator's note input in its real order.  Import JSON
+// is first resolved through the same fixed-row resolver used by the structure
+// sheet, then the generator's only note-text normalization is applied.  The
+// audit deliberately does not trim or otherwise weaken that expected text.
+function isolatedJCurrentNormalGeneratorExpected_(scriptRows) {
+  const sourceByNo = {};
+  scriptRows.forEach(function(row) {
+    const no = Number(row && row.no);
+    if (!Number.isInteger(no) || no < 1 || no > 106 || Object.prototype.hasOwnProperty.call(sourceByNo, no)) {
+      throw new Error('J現行検品の台本JSON行番号が一意な1〜106ではありません');
+    }
+    sourceByNo[no] = String(row.daihon == null ? '' : row.daihon);
+  });
+  if (Object.keys(sourceByNo).length !== 106) throw new Error('J現行検品の台本JSONが106行ありません');
+  const defs = rowDefs_();
+  const expectedByNo = {};
+  if (!Array.isArray(defs) || defs.length !== 106) throw new Error('J現行検品の生成定義が106行ありません');
+  defs.forEach(function(def) {
+    const no = Number(def && def.no);
+    if (!Number.isInteger(no) || no < 1 || no > 106 || Object.prototype.hasOwnProperty.call(expectedByNo, no)) {
+      throw new Error('J現行検品の生成定義行番号が一意な1〜106ではありません');
+    }
+    // resolveDaihon_ is the same routine invoked while normal generation
+    // prepares the structure-sheet row.  In particular, dm=FIX wins over
+    // imported JSON before normalizeWebinarTerms_ runs in generateSlides_.
+    expectedByNo[no] = isolatedJCurrentNormalizeLineEndings_(normalizeWebinarTerms_(resolveDaihon_(def, sourceByNo)));
+  });
+  if (Object.keys(expectedByNo).length !== 106) throw new Error('J現行検品の期待ノートが106行になりません');
+  return { sourceByNo: sourceByNo, expectedByNo: expectedByNo };
+}
+function isolatedJCurrentShortDifferenceExcerpt_(value, firstDifferentCharacter) {
+  const chars = Array.from(String(value == null ? '' : value));
+  const start = Math.max(0, Math.min(Number(firstDifferentCharacter) || 0, chars.length) - 12);
+  const end = Math.min(chars.length, start + 32);
+  return chars.slice(start, end).join('');
+}
+function isolatedJCurrentNoteDifference_(rawText, normalizedText, expectedText) {
+  const actual = Array.from(String(normalizedText == null ? '' : normalizedText));
+  const expected = Array.from(String(expectedText == null ? '' : expectedText));
+  let first = 0;
+  while (first < actual.length && first < expected.length && actual[first] === expected[first]) first++;
+  if (first === actual.length && first === expected.length) {
+    return { matches: true, category: String(rawText) === String(expectedText) ? 'exact-match' : 'line-ending-only-match', actualLength: actual.length, expectedLength: expected.length };
+  }
+  let category = 'content-difference';
+  if (actual.length === 0) category = 'empty-note';
+  else if (first === actual.length) category = 'note-is-prefix-of-expected';
+  else if (first === expected.length) category = 'note-has-extra-suffix';
+  else if (actual.length > expected.length && actual.slice(actual.length - expected.length).join('') === expected.join('')) category = 'note-has-extra-prefix';
+  return { matches: false, category: category, actualLength: actual.length, expectedLength: expected.length,
+    firstDifferentCharacter: first + 1,
+    actualExcerpt: isolatedJCurrentShortDifferenceExcerpt_(actual.join(''), first),
+    expectedExcerpt: isolatedJCurrentShortDifferenceExcerpt_(expected.join(''), first) };
 }
 function isolatedJCurrentVisibleText_(element, out) {
   let type = '';
@@ -235,23 +290,39 @@ function 隔離通し_J現行資料を読取検品() {
     if (slides.length !== 106 || duplicateSlideIds || target.mapping.pages.some(function(page) { return !byId[page.pageId]; })) {
       throw new Error('J現行deckが対応表の固定106ページと一致しません');
     }
-    const rowsByNo = {};
-    target.scriptRows.forEach(function(row) { rowsByNo[Number(row.no)] = isolatedJCurrentNormalizeLineEndings_(row.daihon); });
+    const normalExpected = isolatedJCurrentNormalGeneratorExpected_(target.scriptRows);
+    const rowsByNo = normalExpected.sourceByNo;
+    const expectedRowsByNo = normalExpected.expectedByNo;
     const noteRows = [];
     const noteMismatchNos = [], emptyNoteNos = [], unreadableNoteNos = [];
+    const noteDifferences = [], differenceCounts = { 'exact-match': 0, 'line-ending-only-match': 0,
+      'empty-note': 0, 'note-is-prefix-of-expected': 0, 'note-has-extra-prefix': 0,
+      'note-has-extra-suffix': 0, 'content-difference': 0, 'unreadable-note': 0 };
     target.mapping.pages.forEach(function(page) {
       const note = isolatedJCurrentNote_(byId[page.pageId]);
-      const expected = rowsByNo[page.slideNo];
+      const expected = expectedRowsByNo[page.slideNo];
       noteRows.push({ no: page.slideNo, text: note.text });
-      if (!note.readable) unreadableNoteNos.push(page.slideNo);
+      if (!note.readable) {
+        unreadableNoteNos.push(page.slideNo);
+        differenceCounts['unreadable-note']++;
+        noteDifferences.push({ no: page.slideNo, category: 'unreadable-note', actualLength: null,
+          expectedLength: Array.from(String(expected)).length });
+        noteMismatchNos.push(page.slideNo);
+        return;
+      }
       if (note.text === '') emptyNoteNos.push(page.slideNo);
-      if (!note.readable || note.text !== expected) noteMismatchNos.push(page.slideNo);
+      const difference = isolatedJCurrentNoteDifference_(note.rawText, note.text, expected);
+      differenceCounts[difference.category]++;
+      if (!difference.matches) {
+        noteMismatchNos.push(page.slideNo);
+        noteDifferences.push(Object.assign({ no: page.slideNo }, difference));
+      }
     });
     const fixedNos = isolatedJCurrentFixedNos_();
     const fixedBaselineHash = 隔離通し_J台本_sha256_(JSON.stringify(fixedNos.map(function(no) {
       return { no: no, daihon: isolatedJCurrentNormalizeLineEndings_(FIXED_DAIHON[no]) };
     })));
-    const fixedScriptMismatchNos = fixedNos.filter(function(no) { return rowsByNo[no] !== isolatedJCurrentNormalizeLineEndings_(FIXED_DAIHON[no]); });
+    const fixedScriptMismatchNos = fixedNos.filter(function(no) { return isolatedJCurrentNormalizeLineEndings_(rowsByNo[no]) !== isolatedJCurrentNormalizeLineEndings_(FIXED_DAIHON[no]); });
     const fixedNoteMismatchNos = fixedNos.filter(function(no) {
       return noteRows[no - 1].text !== isolatedJCurrentNormalizeLineEndings_(FIXED_DAIHON[no]);
     });
@@ -284,9 +355,16 @@ function 隔離通し_J現行資料を読取検品() {
       mode: 'read-only-current-j-strict-audit', fixedIsolationTarget: true, slideCount: slides.length,
       scriptSha256: target.scriptHash, normalizedNotesSha256: noteHash, visibleSlideTextSha256: visibleTextHash,
       lineEndingNormalization: 'CRLF-or-CR-to-LF-only',
+      normalGeneratorExpectation: { order: ['resolveDaihon_-fixed-before-imported-JSON', 'normalizeWebinarTerms_', 'CRLF-or-CR-to-LF-comparison-only'],
+        expectedRows: 106, expectedNotesSha256: 隔離通し_J台本_sha256_(JSON.stringify(Object.keys(expectedRowsByNo).map(function(no) { return { no: Number(no), daihon: expectedRowsByNo[no] }; }))),
+        fixedSourceDivergenceNos: fixedScriptMismatchNos },
       scriptNotes: { expectedRows: 106, comparedRows: noteRows.length, mismatchCount: noteMismatchNos.length,
         mismatchNos: noteMismatchNos, emptyNoteCount: emptyNoteNos.length, emptyNoteNos: emptyNoteNos,
         unreadableNoteCount: unreadableNoteNos.length, unreadableNoteNos: unreadableNoteNos },
+      noteDifferenceSummary: differenceCounts,
+      // Excerpts appear only for genuine non-equivalences and are capped at 32
+      // characters each.  The target is a fixed non-customer fixture.
+      noteDifferences: noteDifferences,
       fixedScript: { expectedCount: fixedNos.length, fixedNos: fixedNos, baselineSha256: fixedBaselineHash, scriptMismatchNos: fixedScriptMismatchNos,
         noteMismatchNos: fixedNoteMismatchNos },
       zoomOccurrences: { notes: isolatedJCurrentZoomCount_(notesCorpus), visibleSlides: isolatedJCurrentZoomCount_(visibleCorpus), visibleTextReadErrors: visible.readErrors },
