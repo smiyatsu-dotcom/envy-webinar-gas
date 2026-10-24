@@ -176,15 +176,149 @@ function 隔離通し生成を開始する() {
 }
 
 /**
+ * 品質ルールを更新した後だけ使う固定隔離案件の再試験入口。
+ * 直前の成果物は日時付き控えへ丸ごと保全し、診断が作成した開始JSONの
+ * 本文を変えずに通常の processStartOrders_ へ渡し直す。通常案件、通知、
+ * 通常の入力・出力rootを通らない。
+ */
+function 隔離通し品質修正後に再試験する() {
+  var cfg = 隔離通し_生成設定を作る_();
+  return withIsolationTestConfig_(cfg, function () {
+    var output = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+    var cases = output.getFoldersByName(隔離通し_生成_案件名);
+    if (!cases.hasNext()) throw new Error('隔離通しの現行案件フォルダがありません');
+    var current = cases.next();
+    if (cases.hasNext()) throw new Error('隔離通しの現行案件フォルダが複数あります');
+    隔離通し_生成の親を確かめる_(current, output.getId(), '隔離通し現行案件フォルダ');
+    var doneName = '【済】開始_' + 隔離通し_生成_案件名 + '.json';
+    var done = 隔離通し_同名ファイル1件_(current, doneName, '隔離通し済開始JSON');
+    if (!done) throw new Error('隔離通しの現行案件に正規済開始JSONがありません');
+    var payload = 開始を読む_(done.getBlob().getDataAsString('UTF-8'));
+    if (payload.案件名 !== 隔離通し_生成_案件名 || payload.ヒアリングシートID !== 隔離通し_生成_ヒアリングID) {
+      throw new Error('隔離通し済開始JSONの案件またはヒアリングIDが固定fixtureと一致しません');
+    }
+    var startBox = DriveApp.getFolderById(cfg.ISOLATION_START_BOX_ID);
+    var startName = '【開始】' + 隔離通し_生成_案件名 + '.json';
+    if (隔離通し_同名ファイル1件_(startBox, startName, '隔離通し開始JSON')) {
+      throw new Error('隔離通し開始箱に未処理の開始JSONがあります');
+    }
+    var root = DriveApp.getFolderById(隔離通し_生成_rootID);
+    var stamp = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMdd-HHmmss');
+    var archive = root.createFolder('【再試験控え】' + 隔離通し_生成_案件名 + '_' + stamp);
+    current.moveTo(archive);
+    // 診断済み開始JSONは本文不変で取り出し、通常開始処理へ渡す。
+    done.moveTo(startBox);
+    done.setName(startName);
+    var handoff = 隔離通し_正規開始を引き渡す_(cfg);
+    if (!handoff.handed) throw new Error('隔離通しの正規開始JSONを引き渡せません');
+    隔離通し_台帳を新規登録前に戻す_(cfg);
+    processStartOrders_();
+    return { ok: true, phase: 'quality-rerun-start', caseName: 隔離通し_生成_案件名,
+      archiveFolderId: archive.getId(), outputFolderId: handoff.outputFolderId,
+      startFileId: handoff.startFileId, managementSheetId: cfg.MGMT_SHEET_ID };
+  });
+}
+
+// Apps Script editor function pickers can fail to index non-ASCII names after
+// an external sync. Keep one no-argument, public ASCII entrypoint for this
+// fixed fixture only; it delegates to the fully guarded Japanese function.
+function runIsolationQualityRerun() {
+  return 隔離通し品質修正後に再試験する();
+}
+
+/**
  * 固定fixtureの1件だけを通常の新フロー順で進める。
  * main の import → new-flow の順だけを再現する。開始の引渡し・台帳初期化はしない。
  */
 function 隔離通し生成を進める() {
   var cfg = 隔離通し_生成設定を作る_();
   return withIsolationTestConfig_(cfg, function () {
+    // Match the normal five-minute main() pass: LP text is converted before
+    // imports, then a queued slide build runs first in its own pass.  The
+    // flag is execution-local; do not set the shared Script Property used by
+    // production main(), because that could affect a customer case.
+    convertLpTexts_();
+    // This fixed fixture may resume after a validated watcher recovery.  Let
+    // the normal importer re-evaluate its unchanged, already-validated JSON;
+    // no production AUTOIMPORT key is touched.
+    PropertiesService.getScriptProperties().deleteProperty('AUTOIMPORT_1YvJszV8Mz1tN1DVZ9xOIY5D7XGW754QQFVU_oyi34AQ');
     processImports_();
+    新_先に組む回_ = true;
     processNewFlow_();
     return { ok: true, phase: 'advance', caseName: 隔離通し_生成_案件名, outputRootId: cfg.OUTPUT_FOLDER_ID, managementSheetId: cfg.MGMT_SHEET_ID };
+  });
+}
+
+/**
+ * Read-only probe for the one fixed isolation deck left by a failed build.
+ * It deliberately neither renames nor saves the presentation, and is not
+ * reachable from production callers.
+ */
+function 隔離通しスライド読取診断() {
+  var cfg = 隔離通し_生成設定を作る_();
+  var deckId = '11mln8JISLVwQKsjeVqHjctXeGEnk8UeFBRZqCBJvEYQ';
+  return withIsolationTestConfig_(cfg, function () {
+    var root = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+    if (root.getName() !== '【出力】生成物') throw new Error('隔離生成物root以外には診断できません');
+    var f = DriveApp.getFileById(deckId);
+    if (f.getMimeType() !== MimeType.GOOGLE_SLIDES || f.isTrashed()) throw new Error('隔離中間deckがありません');
+    var parents = f.getParents();
+    if (!parents.hasNext() || parents.next().getName() !== 隔離通し_生成_案件名) throw new Error('隔離案件外のdeckには診断できません');
+    var pres = SlidesApp.openById(deckId);
+    var slides = pres.getSlides();
+    return { ok: true, deckId: deckId, name: f.getName(), slideCount: slides.length,
+      pageWidth: pres.getPageWidth(), pageHeight: pres.getPageHeight() };
+  });
+}
+
+/** Save/close probe for the same isolation-only deck; it performs no edits. */
+function 隔離通しスライド保存診断() {
+  var cfg = 隔離通し_生成設定を作る_();
+  var deckId = '11mln8JISLVwQKsjeVqHjctXeGEnk8UeFBRZqCBJvEYQ';
+  return withIsolationTestConfig_(cfg, function () {
+    var f = DriveApp.getFileById(deckId);
+    var parents = f.getParents();
+    if (f.getMimeType() !== MimeType.GOOGLE_SLIDES || f.isTrashed() || !parents.hasNext() || parents.next().getName() !== 隔離通し_生成_案件名) throw new Error('隔離中間deckだけを診断します');
+    var pres = SlidesApp.openById(deckId);
+    var count = pres.getSlides().length;
+    pres.saveAndClose();
+    return { ok: true, deckId: deckId, slideCount: count, savedWithoutMutation: true };
+  });
+}
+
+/**
+ * Fixed-fixture counterpart of the existing manual "スライドだけ組み直す".
+ * It invokes the same internal builder once, but refuses any ledger other
+ * than this single isolated new-flow row.
+ */
+function 隔離通しスライドだけを組み直す() {
+  var cfg = 隔離通し_生成設定を作る_();
+  return withIsolationTestConfig_(cfg, function () {
+    var rows = mgmtSheet_(cfg).getDataRange().getValues();
+    var matches = rows.slice(1).filter(function (row) {
+      return String(row[0] || '') === 隔離通し_生成_ヒアリングID &&
+        String(row[1] || '') === 隔離通し_生成_案件名 + '_ヒアリングシート' &&
+        String(row[流れ_列 - 1] || '') === 流れ_新;
+    });
+    if (matches.length !== 1 || rows.slice(1).filter(function (row) { return String(row[流れ_列 - 1] || '') === 流れ_新; }).length !== 1) {
+      throw new Error('隔離fixture以外の台帳行には再組版できません');
+    }
+    // This only bypasses the time-budget defer used by main(); it does not
+    // touch the diagram-failure marker, approval state, or completion state.
+    新_先に組む回_ = true;
+    var ok = スライドを組む_(cfg, matches[0], false);
+    if (ok !== true) throw new Error('正規スライド再組版が完了しませんでした: ' + ok);
+    return { ok: true, caseName: 隔離通し_生成_案件名, mode: 'manual-slide-regeneration' };
+  });
+}
+
+function 隔離通しスライド失敗を読む() {
+  var cfg = 隔離通し_生成設定を作る_();
+  return withIsolationTestConfig_(cfg, function () {
+    var rows = mgmtSheet_(cfg).getDataRange().getValues();
+    var row = rows.slice(1).filter(function (r) { return String(r[0] || '') === 隔離通し_生成_ヒアリングID; })[0];
+    if (!row) throw new Error('隔離台帳行がありません');
+    return { status: String(row[2] || ''), message: String(row[5] || ''), slideUrl: String(row[4] || '') };
   });
 }
 
@@ -274,3 +408,38 @@ function スライド_隔離配置永続化を試す() {
   });
   return {ok:true,caseName:caseName,outputRootId:rootId,firstDeckId:map.presentationId,secondDeckId:latest.presentationId,pageCount:latest.pages.length,expectedGeometry:after,actualGeometry:geometryOf_(applied[0]),geometryVerified:true};
 }
+
+
+// Fixed fixture only: snapshot, mutate the live object, prove the readback,
+// then persist the selector for a normal regeneration.  No input selects IDs.
+const ISOLATION_GEOMETRY_CASE = '隔離通し診断テスト社';
+const ISOLATION_GEOMETRY_HEARING = '1ur8hPUElZMrKuitnDo1j1wzr54EkmRY9efNMaEQFErs';
+const ISOLATION_GEOMETRY_DECK = '12jfYwhluLE4r6DQrueSl45x8BnZprbaMtgJBVCugU84';
+const ISOLATION_GEOMETRY_PAGE = 'g38554c11d2e_1_113';
+const ISOLATION_GEOMETRY_OBJECT = 'g38554c11d2e_1_114';
+const ISOLATION_GEOMETRY_NO = 40;
+const ISOLATION_GEOMETRY_BEFORE = {left:40.44094488188976,top:37.21555118110236,width:639.1181102362204,height:47.40944881889764};
+function isolationGeometryEqual_(a,b){return !!a&&!!b&&['left','top','width','height'].every(function(k){return Number(a[k])===Number(b[k]);});}
+function isolationGeometry_(e){return {left:e.getLeft(),top:e.getTop(),width:e.getWidth(),height:e.getHeight()};}
+function isolationHash_(s){return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,String(s),Utilities.Charset.UTF_8).map(function(b){return ('0'+(b<0?b+256:b).toString(16)).slice(-2);}).join('');}
+function isolationCanonical_(v){if(Array.isArray(v))return '['+v.map(isolationCanonical_).join(',')+']';if(v&&typeof v==='object')return '{'+Object.keys(v).sort().map(function(k){return JSON.stringify(k)+':'+isolationCanonical_(v[k]);}).join(',')+'}';return JSON.stringify(v);}
+function isolationPlanHash_(p){const q={};Object.keys(p).forEach(function(k){if(k!=='planHash')q[k]=p[k];});return isolationHash_(isolationCanonical_(q));}
+function isolationFolder_(){const root=DriveApp.getFolderById(隔離通し_生成_生成物rootID);if(root.getName()!=='【出力】生成物')throw new Error('固定隔離rootではありません');const it=root.getFoldersByName(ISOLATION_GEOMETRY_CASE);if(!it.hasNext())throw new Error('固定隔離案件がありません');const f=it.next();if(it.hasNext())throw new Error('固定隔離案件が複数あります');return f;}
+function isolationGeometryMap_(){const f=activeGeometryFile_(isolationFolder_(),ISOLATION_GEOMETRY_CASE);if(!f)return null;const x=JSON.parse(f.getBlob().getDataAsString('UTF-8'));if(!x||x.schema!==GEOMETRY_SCHEMA||x.caseName!==ISOLATION_GEOMETRY_CASE||!Array.isArray(x.records))throw new Error('固定隔離配置指定が不正です');return {file:f,data:x};}
+function スライド_承認用geometryを読む(){
+  const folder=isolationFolder_(),it=filesByName_(folder,GEOMETRY_MAP_PREFIX+ISOLATION_GEOMETRY_CASE+'.json');if(!it.hasNext())throw new Error('正規対応表がありません');const mapFile=it.next();if(it.hasNext())throw new Error('正規対応表が複数あります');const map=JSON.parse(mapFile.getBlob().getDataAsString('UTF-8'));
+  const p=(map.pages||[]).filter(function(x){return x.slideNo===ISOLATION_GEOMETRY_NO&&x.pageId===ISOLATION_GEOMETRY_PAGE;});if(map.caseName!==ISOLATION_GEOMETRY_CASE||map.presentationId!==ISOLATION_GEOMETRY_DECK||p.length!==1)throw new Error('固定対象と正規対応表が一致しません');
+  const deck=SlidesApp.openById(ISOLATION_GEOMETRY_DECK),slide=deck.getSlides().filter(function(s){return s.getObjectId()===ISOLATION_GEOMETRY_PAGE;});if(slide.length!==1)throw new Error('正規ページが現物と一致しません');const hit=slide[0].getPageElements().filter(function(e){return e.getObjectId()===ISOLATION_GEOMETRY_OBJECT;});if(hit.length!==1)throw new Error('対象要素が一意ではありません');const g=isolationGeometry_(hit[0]);if(!isolationGeometryEqual_(g,ISOLATION_GEOMETRY_BEFORE))throw new Error('対象要素の元geometryが一致しません');
+  const selector=Object.assign(elementLabel_(hit[0]),{templateGeometry:g});return {ok:true,caseName:ISOLATION_GEOMETRY_CASE,hearingId:ISOLATION_GEOMETRY_HEARING,presentationId:ISOLATION_GEOMETRY_DECK,slideNo:ISOLATION_GEOMETRY_NO,pageId:ISOLATION_GEOMETRY_PAGE,objectId:ISOLATION_GEOMETRY_OBJECT,before:g,persistentSelector:selector,revision:isolationHash_(isolationCanonical_({map:map,geometry:g,selector:selector}))};
+}
+function スライド_承認済み配置を適用(plan){
+  if(!plan||plan.caseName!==ISOLATION_GEOMETRY_CASE||!/^\d{12}-[a-f0-9]{4}$/.test(String(plan.proposalId||''))||plan.revision!==1||plan.planHash!==isolationPlanHash_(plan))throw new Error('固定隔離の承認済み試験planではありません');
+  const snap=スライド_承認用geometryを読む(),a=plan.after;if(plan.presentationId!==snap.presentationId||plan.pageId!==snap.pageId||plan.objectId!==snap.objectId||!isolationGeometryEqual_(plan.before,snap.before)||plan.presentationRevision!==snap.revision||isolationCanonical_(plan.persistentSelector)!==isolationCanonical_(snap.persistentSelector))throw new Error('対象、元revision、またはselectorが一致しません');if(!a||a.left!==snap.before.left||a.width!==snap.before.width||a.height!==snap.before.height||!Number.isFinite(a.top)||a.top<20||a.top>55)throw new Error('許可された小さなtop変更ではありません');
+  const existing=isolationGeometryMap_();if(existing&&existing.data.records.some(function(r){return r&&r.proposalId===plan.proposalId;}))throw new Error('この試験planは既に適用済みです');
+  const deck=SlidesApp.openById(snap.presentationId),slide=deck.getSlides().filter(function(s){return s.getObjectId()===snap.pageId;});const hits=slide.length===1?slide[0].getPageElements().filter(function(e){return e.getObjectId()===snap.objectId;}):[];if(hits.length!==1)throw new Error('現物の固定対象が一意ではありません');const target=hits[0];
+  target.setLeft(a.left).setTop(a.top).setWidth(a.width).setHeight(a.height);const actual=isolationGeometry_(target);if(!isolationGeometryEqual_(actual,a)){target.setLeft(snap.before.left).setTop(snap.before.top).setWidth(snap.before.width).setHeight(snap.before.height);throw new Error('現物geometryの読戻しが一致しません');}
+  const record={proposalId:plan.proposalId,revision:1,planHash:plan.planHash,status:'active',slideNo:ISOLATION_GEOMETRY_NO,selector:plan.persistentSelector,after:a};const data=existing?existing.data:{schema:GEOMETRY_SCHEMA,caseName:ISOLATION_GEOMETRY_CASE,records:[]};data.records.push(record);
+  try{if(existing)existing.file.setContent(JSON.stringify(data));else isolationFolder_().createFile(GEOMETRY_FILE_PREFIX+ISOLATION_GEOMETRY_CASE+'.json',JSON.stringify(data),MimeType.PLAIN_TEXT);const saved=isolationGeometryMap_();if(!saved||saved.data.records.filter(function(r){return r&&r.proposalId===plan.proposalId&&r.planHash===plan.planHash;}).length!==1)throw new Error('配置指定の読戻しが一致しません');}catch(e){target.setLeft(snap.before.left).setTop(snap.before.top).setWidth(snap.before.width).setHeight(snap.before.height);throw e;}
+  return {ok:true,proposalId:plan.proposalId,revision:1,planHash:plan.planHash,before:snap.before,after:actual,geometryVerified:true,durableGeometryVerified:true};
+}
+

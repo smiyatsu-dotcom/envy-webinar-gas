@@ -293,7 +293,7 @@ function tZoom_(p, W, H) {
   b.getText().getTextStyle().setFontSize(20).setBold(true).setForegroundColor(C_.white);
   b.getText().getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
   b.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE);
-  static_(s, '本日ZOOM終了までに\nお申し込みいただいた方には\n追加特典をご用意しています', W*0.1, 150, W*0.8, 190, 26, C_.ink);
+  static_(s, '本日ウェビナー終了までに\nお申し込みいただいた方には\n追加特典をご用意しています', W*0.1, 150, W*0.8, 190, 26, C_.ink);
 }
 function tMeigen_(p, W, H) {
   const s = base_(p, 'static_meigen', C_.bg);

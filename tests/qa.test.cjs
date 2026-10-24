@@ -210,10 +210,12 @@ function runGenerate(rows, ryoukin) {
   G3.getConfig_ = () => ({ TEMPLATE_SLIDE_ID: 'T', OUTPUT_FOLDER_ID: 'O', ASSETS_FOLDER_ID: 'A' });
   G3.readKouseiSheet_ = () => ({ name: 'サンプル社', assetsFolderId: '', ryoukin: ryoukin || '単一', rows });
   G3.fillReal_ = () => {}; G3.replaceImages_ = () => {};
+  const persistentSlides = {};
+  G3.applyPersistentGeometry_ = (_folder, _company, slideForNo) => { [96, 102].forEach(no => { persistentSlides[no] = slideForNo(no); }); };
   let qaFilled = null;
   G3.fillQa_ = (slide, row) => { qaFilled = { slide, row }; };
   const res = G3.generateSlides_('K');
-  return { log, slides, res, qaFilled, daihonTxt };
+  return { log, slides, res, qaFilled, daihonTxt, persistentSlides };
 }
 function baseRows(withQa, qaKousei, qaDaihon) {
   const rows = {};
@@ -266,6 +268,10 @@ test('通し: 松竹梅でも同じ（No.104の位置は料金バリアントの
   const r = runGenerate(baseRows(true, 'Q. a\nA. b', 'qa'), '松竹梅');
   assert.deepStrictEqual(r.log.filter(x => /^duplicate/.test(x)), ['duplicate:105']);
   assert.deepStrictEqual(r.log.filter(x => /remove/.test(x)), ['remove:102', 'remove:95']);
+  // Persistent geometry must be applied to the final 松竹梅 variant, not the
+  // single-price template positions that are removed after generation.
+  assert.strictEqual(r.persistentSlides[96], r.slides[96]);
+  assert.strictEqual(r.persistentSlides[102], r.slides[103]);
 });
 
 // ============================================================

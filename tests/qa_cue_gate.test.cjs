@@ -2,9 +2,10 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { makeEnv, loadGas } = require('/Users/shun/Documents/Codex/2026-10-23/task-22/envy-webinar-gas/tests/fake_gas.cjs');
+const root = path.join(__dirname, '..');
+const { makeEnv, loadGas } = require(path.join(root, 'tests', 'fake_gas.cjs'));
 
-const source = fs.readFileSync('/Users/shun/Documents/Codex/2026-10-23/task-22/envy-webinar-gas/65_qa_cue.js', 'utf8').replace(/^const /gm, 'var ');
+const source = fs.readFileSync(path.join(root, '65_qa_cue.js'), 'utf8').replace(/^const /gm, 'var ');
 const ctx = {}; vm.createContext(ctx); vm.runInContext(source, ctx);
 const blank = Array.from({ length: 70 }, () => ['', '', '', '']);
 assert.strictEqual(ctx.qaCueFaqStatusFromValues_(blank).state, '欄なし');

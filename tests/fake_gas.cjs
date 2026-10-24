@@ -8,6 +8,10 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const root = path.join(__dirname, '..');
+// The macOS shim named `git` can hang under the test executor. Prefer the
+// already-installed Command Line Tools binary, with the ordinary PATH fallback
+// retained for other environments.
+const gitExecutable = fs.existsSync('/Library/Developer/CommandLineTools/usr/bin/git') ? '/Library/Developer/CommandLineTools/usr/bin/git' : 'git';
 
 function a1ToRC(a1) {
   const m = String(a1).match(/^([A-Z]+)(\d+)$/);
@@ -165,12 +169,12 @@ function loadGas(env, rev) {
   vm.createContext(ctx);
   let names;
   if (rev) {
-    names = execFileSync('git', ['-C', root, 'ls-tree', '--name-only', rev], { encoding: 'utf8' }).split('\n').filter(f => /\.js$/.test(f)).sort();
+    names = execFileSync(gitExecutable, ['-C', root, 'ls-tree', '--name-only', rev], { encoding: 'utf8' }).split('\n').filter(f => /\.js$/.test(f)).sort();
   } else {
     names = fs.readdirSync(root).filter(f => /\.js$/.test(f)).sort();
   }
   names.forEach(f => {
-    const raw = rev ? execFileSync('git', ['-C', root, 'show', rev + ':' + f], { encoding: 'utf8' }) : fs.readFileSync(path.join(root, f), 'utf8');
+    const raw = rev ? execFileSync(gitExecutable, ['-C', root, 'show', rev + ':' + f], { encoding: 'utf8' }) : fs.readFileSync(path.join(root, f), 'utf8');
     vm.runInContext(raw.replace(/^const /gm, 'var '), ctx, { filename: (rev ? rev + ':' : '') + f });
   });
   return ctx;
