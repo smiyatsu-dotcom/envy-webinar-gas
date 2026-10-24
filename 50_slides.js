@@ -49,6 +49,19 @@ function generateSlides_(kouseiSheetId, opt) {
                 SELECT: buildAssetIndex_(cfg, 'SELECT'),
                 BG85: buildBgIndex_(cfg, '85'), BG25: buildBgIndex_(cfg, '25'), BG15: buildBgIndex_(cfg, '15') };
   const targets = designTargets_();
+  // Only these generator-selected elements may later be considered for normal
+  // geometry.  This is an allow-list, not a post-hoc search: icons,
+  // backgrounds, and arbitrary text boxes never become movable merely because
+  // they look similar to the requested content.
+  const geometryTargets = {};
+  function addGeometryTarget(no, element, role) {
+    const id = element && typeof element.getObjectId === 'function' ? element.getObjectId() : element && element.id;
+    const type = element && typeof element.getPageElementType === 'function' ? String(element.getPageElementType()) : String(element && element.type || '');
+    const selectedRole = role || (element && element.role);
+    if (!id || !((type === 'IMAGE' && selectedRole === 'primary-image') || (type === 'SHAPE' && selectedRole === 'heading'))) return;
+    const list = geometryTargets[no] || (geometryTargets[no] = []);
+    if (!list.some(function (item) { return item.id === id; })) list.push({ id:String(id), type:type, role:selectedRole });
+  }
 
   // No.→スライド（108枚: 松竹梅版No.96/102が単一版の直後に挿入されている）→ slideIndexFor_
   function slideFor(no) { const i = slideIndexFor_(no); return i < 0 ? null : slides[i]; }
@@ -91,8 +104,11 @@ function generateSlides_(kouseiSheetId, opt) {
       return;
     }
 
+    const headingBefore = editableShapeTextById_(slide);
     try { fillReal_(slide, def, row, data, warnings); }
     catch (e) { warnings.push('No.' + def.no + ' テキスト差し替え失敗: ' + e); }
+    const editedHeading = generatorEditedHeading_(slide, headingBefore);
+    if (editedHeading) addGeometryTarget(def.no, editedHeading, 'heading');
 
     // No.92/95: 「以上」は大きくしない(大きくするのは金額の数字のみ)
     if (def.no === 92 || def.no === 95) {
@@ -124,7 +140,7 @@ function generateSlides_(kouseiSheetId, opt) {
     try { setNotesText_(slide, normalizeWebinarTerms_(row.daihon || '')); }
     catch (e) { throw new Error('No.' + def.no + ' ノート設定失敗: ' + e); }
 
-    try { replaceImages_(slide, def, row, data, zukaiFolder, idx, targets, warnings); }
+    try { const selected = replaceImages_(slide, def, row, data, zukaiFolder, idx, targets, warnings); (selected || []).forEach(function (item) { addGeometryTarget(def.no, item); }); }
     catch (e) { warnings.push('No.' + def.no + ' 画像差し替え失敗: ' + e); }
   });
 
@@ -139,12 +155,15 @@ function generateSlides_(kouseiSheetId, opt) {
 
   // Keep an explicit, generator-authored correspondence for the *current* deck.
   // Do not reconstruct this later from getSlides()[n]: variants and Q&A make that
-  // position unsuitable as proof of a template origin.
+  // position unsuitable as proof of a template origin. Capture page identities
+  // before closing; their final selectors are read only after all approved
+  // persistent geometry and the safe-name transition have completed.
   function generatedSlideFor(no) { return (no === 96 || no === 102) && data.ryoukin === '松竹梅' ? matsuFor(no) : slideFor(no); }
-  try { writeGeometrySlideMap_(outFolder, caseCompany_(data.name), copyFile.getId(), generatedSlideFor, qaSlide, pres); }
-  catch (e) { warnings.push('配置対応表の保存失敗: ' + e); }
+  const geometryPageIds = {};
+  for (let no = 1; no <= 106; no++) { try { const slide = generatedSlideFor(no); if (slide) geometryPageIds[no] = slide.getObjectId(); } catch (e) { } }
+  try { if (qaSlide) geometryPageIds[QA_NO] = qaSlide.getObjectId(); } catch (e) { }
 
-  try { applyPersistentGeometry_(outFolder, caseCompany_(data.name), function (no) { return no === QA_NO ? qaSlide : slideFor(no); }, warnings); }
+  try { applyPersistentGeometry_(outFolder, caseCompany_(data.name), function (no) { return no === QA_NO ? qaSlide : generatedSlideFor(no); }, warnings); }
   catch (e) { warnings.push('配置指定を適用できません: ' + e); }
 
   pres.saveAndClose();
@@ -153,8 +172,34 @@ function generateSlides_(kouseiSheetId, opt) {
     if (trashed) warnings.push('旧スライド' + trashed + '件をゴミ箱へ移しました（30日以内なら復元可）');
     copyFile.setName(slideName);
   }
+  let finalPres = null;
+  try { finalPres = SlidesApp.openById(copyFile.getId()); writeGeometrySlideMap_(outFolder, caseCompany_(data.name), copyFile.getId(), geometryPageIds, finalPres, geometryTargets); }
+  catch (e) { warnings.push('配置対応表の保存失敗: ' + e); }
   if (warnings.length > 0) Logger.log('スライド生成警告:\n' + warnings.join('\n'));
-  return { pres: SlidesApp.openById(copyFile.getId()), warnings: warnings };
+  return { pres: finalPres || SlidesApp.openById(copyFile.getId()), warnings: warnings };
+}
+
+// A heading is not inferred from a consultation request. It is eligible only
+// if this generator changed exactly one editable SHAPE in the template's
+// heading band for that page. Pages with zero or multiple candidates are
+// deliberately left without a SHAPE target.
+function editableShapeTextById_(slide) {
+  const values = {};
+  try { slide.getShapes().forEach(function (shape) { const id = shape.getObjectId(); if (id) values[id] = txt_(shape); }); } catch (e) { }
+  return values;
+}
+function generatorEditedHeading_(slide, before) {
+  const matches = [];
+  try {
+    slide.getShapes().forEach(function (shape) {
+      const id = shape.getObjectId(), text = txt_(shape);
+      if (!id || !text || before[id] === text || /^\d+$/u.test(text)) return;
+      // This is the shared template heading region, not a page-number rule.
+      if (shape.getTop() >= 120 || shape.getWidth() < 160 || shape.getHeight() > 180) return;
+      matches.push(shape);
+    });
+  } catch (e) { return null; }
+  return matches.length === 1 ? matches[0] : null;
 }
 
 /**
@@ -861,6 +906,7 @@ function parseAssetRef_(raw) {
 
 function replaceImages_(slide, def, row, data, zukaiFolder, idx, targets, warnings) {
   const no = def.no;
+  const geometryTargets = [];
   const pics = slidePics_(slide);
   const fullbleed = pics.filter(function (p) { return p.w >= 700 && p.h >= 430; })[0];
   const nonFull = pics.filter(function (p) { return !(p.w >= 700 && p.h >= 430) && !(p.w >= 700 && p.h < 200); }); // 帯画像は固定
@@ -877,7 +923,7 @@ function replaceImages_(slide, def, row, data, zukaiFolder, idx, targets, warnin
       // ★新しい流れの図解・特徴・工程・特典だけ、枠の比率に合わせて真ん中で切る（手で差し替えた絵の大きさが違っても歪ませない）。
       //   表紙（サムネイル）・プロフ・事例・モックアップと旧の流れは今までどおり（2026-09-27）
       const 切る = 新_画像を合わせる_ && /^(図解|特徴|工程|特典)/.test(String(def.img || ''));
-      if (target) { try { target.im.replace(file.getBlob(), 切る); } catch (e) { warnings.push('No.' + no + ' 図解replace失敗: ' + e); } }
+      if (target) { try { target.im.replace(file.getBlob(), 切る); geometryTargets.push({ id:target.im.getObjectId(), type:'IMAGE', role:'primary-image' }); } catch (e) { warnings.push('No.' + no + ' 図解replace失敗: ' + e); } }
     }
   }
 
@@ -943,6 +989,7 @@ function replaceImages_(slide, def, row, data, zukaiFolder, idx, targets, warnin
       }
     }
   }
+  return geometryTargets;
 }
 
 function replaceIcon_(pic, rawName, index, warnings, no) {
