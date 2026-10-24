@@ -110,15 +110,60 @@ function isolatedJCurrentFile_(folder, name, label) {
   if (!file) throw new Error(label + ' が固定隔離案件にありません');
   return file;
 }
-function isolatedJCurrentText_(slide) {
-  try { return String(slide.getNotesPage().getSpeakerNotesShape().getText().asString() || '').replace(/\r\n/g, '\n').replace(/\n+$/g, ''); }
-  catch (e) { return ''; }
+// The current-J audit accepts only one representational normalization: CRLF
+// (and a legacy lone CR) becomes LF.  It never trims, drops an empty note,
+// or removes wording to make two artifacts look equal.
+function isolatedJCurrentNormalizeLineEndings_(value) {
+  return String(value == null ? '' : value).replace(/\r\n?/g, '\n');
 }
-function isolatedJCurrentAudioText_(notes) {
-  const parts = notes.map(function(text) {
-    return String(text || '').replace(/（挙手ありがとうございます。?）/g, '').trim();
-  }).filter(function(text) { return !!text; });
-  return parts.join('\n\n') + '\n';
+function isolatedJCurrentNote_(slide) {
+  try {
+    return { readable: true, text: isolatedJCurrentNormalizeLineEndings_(slide.getNotesPage().getSpeakerNotesShape().getText().asString()) };
+  } catch (e) {
+    return { readable: false, text: '' };
+  }
+}
+function isolatedJCurrentVisibleText_(element, out) {
+  let type = '';
+  try { type = String(element.getPageElementType()); }
+  catch (e) { out.readErrors++; return; }
+  if (type === 'SHAPE') {
+    try { out.text.push(isolatedJCurrentNormalizeLineEndings_(element.asShape().getText().asString())); }
+    catch (e) { out.readErrors++; }
+    return;
+  }
+  if (type === 'TABLE') {
+    try {
+      const table = element.asTable();
+      for (let row = 0; row < table.getNumRows(); row++) {
+        for (let column = 0; column < table.getNumColumns(); column++) {
+          out.text.push(isolatedJCurrentNormalizeLineEndings_(table.getCell(row, column).getText().asString()));
+        }
+      }
+    } catch (e) { out.readErrors++; }
+    return;
+  }
+  if (type === 'WORD_ART') {
+    try { out.text.push(isolatedJCurrentNormalizeLineEndings_(element.asWordArt().getRenderedText())); }
+    catch (e) { out.readErrors++; }
+    return;
+  }
+  if (type === 'GROUP') {
+    try { element.asGroup().getChildren().forEach(function(child) { isolatedJCurrentVisibleText_(child, out); }); }
+    catch (e) { out.readErrors++; }
+  }
+}
+function isolatedJCurrentZoomCount_(text) {
+  return (String(text || '').match(/zoom/gi) || []).length;
+}
+function isolatedJCurrentFixedNos_() {
+  const expected = [2, 7, 33, 38, 49, 97, 101, 105, 106];
+  if (typeof FIXED_DAIHON !== 'object' || !FIXED_DAIHON) throw new Error('J現行検品の固定台本定義がありません');
+  const actual = Object.keys(FIXED_DAIHON).map(function(key) { return Number(key); }).sort(function(a, b) { return a - b; });
+  if (actual.length !== expected.length || actual.some(function(no, index) { return no !== expected[index] || typeof FIXED_DAIHON[no] !== 'string'; })) {
+    throw new Error('J現行検品の固定9行定義が基準と一致しません');
+  }
+  return expected;
 }
 function isolatedJCurrentAuditTarget_() {
   const c = ISOLATED_J_CURRENT_AUDIT_;
@@ -135,10 +180,12 @@ function isolatedJCurrentAuditTarget_() {
   const mapFile = isolatedJCurrentFile_(folder, c.mapFileName, 'J現行スライド対応表');
   const geometryFile = isolatedJCurrentFile_(folder, c.geometryFileName, 'J現行配置指定');
   const scriptFile = isolatedJCurrentFile_(folder, c.scriptFileName, 'J現行台本JSON');
-  const textFile = isolatedJCurrentFile_(folder, c.textFileName, 'J現行音声台本TXT');
+  // Retain the identity check for the completed audio-text artifact, but do
+  // not use its lossy, narration-oriented projection as acceptance evidence.
+  isolatedJCurrentFile_(folder, c.textFileName, 'J現行音声台本TXT');
   const recordFile = isolatedJCurrentFile_(folder, c.importRecordFileName, 'J台本取込記録');
   const scriptText = scriptFile.getBlob().getDataAsString('UTF-8');
-  隔離通し_J台本_本文を検証する_(scriptText);
+  const scriptRows = 隔離通し_J台本_本文を検証する_(scriptText);
   let importRecord;
   try { importRecord = JSON.parse(recordFile.getBlob().getDataAsString('UTF-8')); }
   catch (e) { throw new Error('J台本取込記録JSONを読めません'); }
@@ -153,7 +200,8 @@ function isolatedJCurrentAuditTarget_() {
   catch (e) { throw new Error('J現行配置指定JSONを読めません'); }
   if (!mapping || mapping.schema !== GEOMETRY_MAP_SCHEMA || mapping.caseName !== 隔離通し_生成_案件名 ||
       mapping.presentationId !== c.deckId || !Array.isArray(mapping.pages) || mapping.pages.length !== 106 ||
-      mapping.pages.some(function(page, index) { return !page || page.slideNo !== index + 1 || typeof page.pageId !== 'string'; })) {
+      mapping.pages.some(function(page, index) { return !page || page.slideNo !== index + 1 || typeof page.pageId !== 'string'; }) ||
+      new Set(mapping.pages.map(function(page) { return page.pageId; })).size !== 106) {
     throw new Error('J現行スライド対応表が固定106枚deckを示しません');
   }
   if (!geometry || geometry.schema !== GEOMETRY_SCHEMA || geometry.caseName !== 隔離通し_生成_案件名 || !Array.isArray(geometry.records)) {
@@ -165,7 +213,7 @@ function isolatedJCurrentAuditTarget_() {
     throw new Error('J現行deckが固定隔離案件フォルダに一意にありません');
   }
   return { cfg: cfg, folder: folder, mapping: mapping, geometry: geometry, deckFile: deckFile,
-    scriptHash: 隔離通し_J台本_sha256_(scriptText), text: textFile.getBlob().getDataAsString('UTF-8') };
+    scriptHash: 隔離通し_J台本_sha256_(scriptText), scriptRows: scriptRows };
 }
 
 /**
@@ -178,12 +226,43 @@ function 隔離通し_J現行資料を読取検品() {
   return withIsolationTestConfig_(target.cfg, function() {
     const slides = SlidesApp.openById(ISOLATED_J_CURRENT_AUDIT_.deckId).getSlides();
     const byId = {};
-    slides.forEach(function(slide) { byId[slide.getObjectId()] = slide; });
-    if (slides.length !== 106 || target.mapping.pages.some(function(page) { return !byId[page.pageId]; })) {
+    let duplicateSlideIds = 0;
+    slides.forEach(function(slide) {
+      const id = String(slide.getObjectId() || '');
+      if (!id || byId[id]) duplicateSlideIds++;
+      byId[id] = slide;
+    });
+    if (slides.length !== 106 || duplicateSlideIds || target.mapping.pages.some(function(page) { return !byId[page.pageId]; })) {
       throw new Error('J現行deckが対応表の固定106ページと一致しません');
     }
-    const notes = target.mapping.pages.map(function(page) { return isolatedJCurrentText_(byId[page.pageId]); });
-    const textMatchesNotes = isolatedJCurrentAudioText_(notes) === target.text;
+    const rowsByNo = {};
+    target.scriptRows.forEach(function(row) { rowsByNo[Number(row.no)] = isolatedJCurrentNormalizeLineEndings_(row.daihon); });
+    const noteRows = [];
+    const noteMismatchNos = [], emptyNoteNos = [], unreadableNoteNos = [];
+    target.mapping.pages.forEach(function(page) {
+      const note = isolatedJCurrentNote_(byId[page.pageId]);
+      const expected = rowsByNo[page.slideNo];
+      noteRows.push({ no: page.slideNo, text: note.text });
+      if (!note.readable) unreadableNoteNos.push(page.slideNo);
+      if (note.text === '') emptyNoteNos.push(page.slideNo);
+      if (!note.readable || note.text !== expected) noteMismatchNos.push(page.slideNo);
+    });
+    const fixedNos = isolatedJCurrentFixedNos_();
+    const fixedBaselineHash = 隔離通し_J台本_sha256_(JSON.stringify(fixedNos.map(function(no) {
+      return { no: no, daihon: isolatedJCurrentNormalizeLineEndings_(FIXED_DAIHON[no]) };
+    })));
+    const fixedScriptMismatchNos = fixedNos.filter(function(no) { return rowsByNo[no] !== isolatedJCurrentNormalizeLineEndings_(FIXED_DAIHON[no]); });
+    const fixedNoteMismatchNos = fixedNos.filter(function(no) {
+      return noteRows[no - 1].text !== isolatedJCurrentNormalizeLineEndings_(FIXED_DAIHON[no]);
+    });
+    const visible = { text: [], readErrors: 0 };
+    slides.forEach(function(slide) {
+      slide.getPageElements().forEach(function(element) { isolatedJCurrentVisibleText_(element, visible); });
+    });
+    const notesCorpus = noteRows.map(function(row) { return row.text; }).join('\n');
+    const visibleCorpus = visible.text.join('\n');
+    const noteHash = 隔離通し_J台本_sha256_(JSON.stringify(noteRows));
+    const visibleTextHash = 隔離通し_J台本_sha256_(visibleCorpus);
     const geometry = target.geometry.records.filter(function(record) { return record && record.status === 'active'; }).map(function(record) {
       const page = target.mapping.pages[Number(record.slideNo) - 1];
       const selector = page && page.targetSelector;
@@ -196,9 +275,21 @@ function 隔離通し_J現行資料を読取検品() {
         currentDeckMatches: matches.length, retained: selectorAfter && matches.length === 1 };
     });
     const geometryRetained = geometry.length > 0 && geometry.every(function(item) { return item.retained; });
-    return { ok: textMatchesNotes && geometryRetained, mode: 'read-only-current-j-artifact-audit',
-      caseName: 隔離通し_生成_案件名, folderId: target.folder.getId(), deckId: ISOLATED_J_CURRENT_AUDIT_.deckId,
-      slideCount: slides.length, scriptSha256: target.scriptHash, notesTxtMatch: textMatchesNotes,
+    const scriptNotesMatch = noteMismatchNos.length === 0 && emptyNoteNos.length === 0 && unreadableNoteNos.length === 0;
+    const fixedMatch = fixedScriptMismatchNos.length === 0 && fixedNoteMismatchNos.length === 0;
+    const noZoom = isolatedJCurrentZoomCount_(notesCorpus) === 0 && isolatedJCurrentZoomCount_(visibleCorpus) === 0 && visible.readErrors === 0;
+    // No source wording, folder ID, deck ID, or slide text is emitted.  This
+    // result is safe to retain as an external execution record.
+    return { ok: scriptNotesMatch && fixedMatch && noZoom && geometryRetained,
+      mode: 'read-only-current-j-strict-audit', fixedIsolationTarget: true, slideCount: slides.length,
+      scriptSha256: target.scriptHash, normalizedNotesSha256: noteHash, visibleSlideTextSha256: visibleTextHash,
+      lineEndingNormalization: 'CRLF-or-CR-to-LF-only',
+      scriptNotes: { expectedRows: 106, comparedRows: noteRows.length, mismatchCount: noteMismatchNos.length,
+        mismatchNos: noteMismatchNos, emptyNoteCount: emptyNoteNos.length, emptyNoteNos: emptyNoteNos,
+        unreadableNoteCount: unreadableNoteNos.length, unreadableNoteNos: unreadableNoteNos },
+      fixedScript: { expectedCount: fixedNos.length, fixedNos: fixedNos, baselineSha256: fixedBaselineHash, scriptMismatchNos: fixedScriptMismatchNos,
+        noteMismatchNos: fixedNoteMismatchNos },
+      zoomOccurrences: { notes: isolatedJCurrentZoomCount_(notesCorpus), visibleSlides: isolatedJCurrentZoomCount_(visibleCorpus), visibleTextReadErrors: visible.readErrors },
       geometry: geometry, actions: { imported: false, regenerated: false, mapRepaired: false, delivered: false, notified: false, audioStarted: false } };
   });
 }

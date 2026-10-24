@@ -19,16 +19,39 @@ function test(name, fn) {
   catch (error) { console.log('NG  ' + name + '\n    ' + (error && error.stack || error)); process.exitCode = 1; }
 }
 function iterator(items) { let index = 0; return { hasNext: () => index < items.length, next: () => items[index++] }; }
-function rows() { return JSON.stringify(Array.from({ length: 106 }, (_, index) => ({ no: index + 1, daihon: 'note-' + (index + 1) }))); }
+function rows(G) {
+  return Array.from({ length: 106 }, (_, index) => {
+    const no = index + 1;
+    return { no, daihon: G.FIXED_DAIHON[no] || 'note-' + no };
+  });
+}
 function shape(id, text, geometry) {
+  let currentText = text;
   return {
     getObjectId: () => id, getPageElementType: () => 'SHAPE', getTitle: () => '', getDescription: () => '',
     getLeft: () => geometry.left, getTop: () => geometry.top, getWidth: () => geometry.width, getHeight: () => geometry.height,
-    asShape: () => ({ getText: () => ({ asString: () => text }) })
+    asShape: () => ({ getText: () => ({ asString: () => currentText }) }),
+    setText: value => { currentText = value; }
+  };
+}
+function wordArt(id, text) {
+  let currentText = text;
+  return {
+    getObjectId: () => id, getPageElementType: () => 'WORD_ART',
+    asWordArt: () => ({ getRenderedText: () => currentText }),
+    setText: value => { currentText = value; }
   };
 }
 function slide(id, note, elements) {
-  return { getObjectId: () => id, getPageElements: () => elements || [], getNotesPage: () => ({ getSpeakerNotesShape: () => ({ getText: () => ({ asString: () => note }) }) }) };
+  let currentNote = note;
+  const currentElements = elements || [];
+  return {
+    elements: currentElements,
+    setNote: value => { currentNote = value; },
+    getObjectId: () => id,
+    getPageElements: () => currentElements,
+    getNotesPage: () => ({ getSpeakerNotesShape: () => ({ getText: () => ({ asString: () => currentNote }) }) })
+  };
 }
 function fixture() {
   const env = makeEnv();
@@ -52,8 +75,9 @@ function fixture() {
   const pages = Array.from({ length: 106 }, (_, index) => ({ slideNo: index + 1, pageId: 'page-' + (index + 1) }));
   const map = { schema: 'consultation-slide-map/v2', caseName: CASE, presentationId: DECK, presentationRevision: 'test', pages };
   const geometry = { schema: 'consultation-slide-geometry/v2', caseName: CASE, records: [{ status: 'active', slideNo: 40, selector: { type: 'SHAPE', title: '', description: '', templateGeometry: before }, after }] };
-  const scriptText = rows();
-  const notes = Array.from({ length: 106 }, (_, index) => 'note-' + (index + 1));
+  const scriptRows = rows(G);
+  const scriptText = JSON.stringify(scriptRows);
+  const notes = scriptRows.map(row => row.daihon);
   const mapFile = folder.addFile(MAP, JSON.stringify(map));
   folder.addFile(GEOMETRY, JSON.stringify(geometry));
   folder.addFile(SCRIPT, scriptText);
@@ -73,7 +97,7 @@ function fixture() {
   G.processImports_ = () => { throw new Error('repair must not import'); };
   G.processNewFlow_ = () => { throw new Error('repair must not advance flow'); };
   G.スライドを組む_ = () => { throw new Error('repair must not regenerate'); };
-  return { env, G, folder, mapFile };
+  return { env, G, folder, mapFile, slides };
 }
 
 test('current J audit is read-only and reports the missing No.40 selector without using the historical deck audit', () => {
@@ -81,11 +105,54 @@ test('current J audit is read-only and reports the missing No.40 selector withou
   const before = env.log.length;
   const result = G.隔離通し_J現行資料を読取検品();
   assert.strictEqual(result.ok, false);
-  assert.strictEqual(result.mode, 'read-only-current-j-artifact-audit');
-  assert.strictEqual(result.notesTxtMatch, true);
+  assert.strictEqual(result.mode, 'read-only-current-j-strict-audit');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.scriptNotes)), {
+    expectedRows: 106, comparedRows: 106, mismatchCount: 0, mismatchNos: [],
+    emptyNoteCount: 0, emptyNoteNos: [], unreadableNoteCount: 0, unreadableNoteNos: []
+  });
+  assert.strictEqual(result.fixedScript.expectedCount, 9);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.fixedScript.fixedNos)), [2, 7, 33, 38, 49, 97, 101, 105, 106]);
+  assert.match(result.fixedScript.baselineSha256, /^[a-f0-9]{64}$/);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.fixedScript.scriptMismatchNos)), []);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.fixedScript.noteMismatchNos)), []);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.zoomOccurrences)), { notes: 0, visibleSlides: 0, visibleTextReadErrors: 0 });
   assert.deepStrictEqual(JSON.parse(JSON.stringify(result.geometry)), [{ slideNo: 40, mapSelector: false, selectorAfter: false, currentDeckMatches: 0, retained: false }]);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(result.actions)), { imported: false, regenerated: false, mapRepaired: false, delivered: false, notified: false, audioStarted: false });
   assert.strictEqual(env.log.length, before);
+});
+
+test('strict audit compares all 106 JSON rows to their mapped notes without removing wording, and reports only safe evidence', () => {
+  const { env, G, slides } = fixture();
+  // Line-ending style alone is intentionally tolerated.
+  slides[1].setNote(G.FIXED_DAIHON[2].replace(/\n/g, '\r\n'));
+  // Empty and altered notes remain mismatches; no filtering or narration-text
+  // removal can turn either into a pass.
+  slides[4].setNote('');
+  slides[5].setNote('note-6（挙手ありがとうございます。）');
+  slides[7].setNote('note-8 Zoom');
+  slides[8].elements.push(wordArt('visible-zoom', 'ZOOM'));
+  const before = env.log.length;
+  const result = G.隔離通し_J現行資料を読取検品();
+  assert.strictEqual(result.ok, false);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.scriptNotes)), {
+    expectedRows: 106, comparedRows: 106, mismatchCount: 3, mismatchNos: [5, 6, 8],
+    emptyNoteCount: 1, emptyNoteNos: [5], unreadableNoteCount: 0, unreadableNoteNos: []
+  });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.zoomOccurrences)), { notes: 1, visibleSlides: 1, visibleTextReadErrors: 0 });
+  const serialized = JSON.stringify(result);
+  assert.doesNotMatch(serialized, /note-6|挙手ありがとうございます|visible-zoom/);
+  assert.match(result.normalizedNotesSha256, /^[a-f0-9]{64}$/);
+  assert.match(result.visibleSlideTextSha256, /^[a-f0-9]{64}$/);
+  assert.strictEqual(env.log.length, before);
+});
+
+test('strict audit checks each fixed row against both the JSON and current note baseline', () => {
+  const { G } = fixture();
+  G.FIXED_DAIHON[2] = 'changed fixed baseline';
+  const result = G.隔離通し_J現行資料を読取検品();
+  assert.strictEqual(result.ok, false);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.fixedScript.scriptMismatchNos)), [2]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.fixedScript.noteMismatchNos)), [2]);
 });
 
 test('No.40 map repair preserves exact input, resolves only the durable after-state heading, and fails closed on retry', () => {
@@ -116,6 +183,18 @@ test('repair source cannot call import, flow, or slide regeneration', () => {
   assert.doesNotMatch(body, /processNewFlow_\s*\(/);
   assert.doesNotMatch(body, /スライドを組む_\s*\(/);
   assert.doesNotMatch(body, /saveAndClose\s*\(/);
+});
+
+test('strict audit source has no mutation, import, regeneration, delivery, or notification path', () => {
+  const source = require('fs').readFileSync(require('path').join(__dirname, '..', '58_isolated_case_audit.js'), 'utf8');
+  const body = source.slice(source.indexOf('function 隔離通し_J現行資料を読取検品'), source.indexOf('function runIsolationCurrentJReadAudit'));
+  assert.doesNotMatch(body, /setContent\s*\(/);
+  assert.doesNotMatch(body, /createFile\s*\(/);
+  assert.doesNotMatch(body, /processImports_\s*\(/);
+  assert.doesNotMatch(body, /processNewFlow_\s*\(/);
+  assert.doesNotMatch(body, /スライドを組む_\s*\(/);
+  assert.doesNotMatch(body, /saveAndClose\s*\(/);
+  assert.doesNotMatch(body, /notify\w*\s*\(/i);
 });
 
 console.log('pass ' + passed);
