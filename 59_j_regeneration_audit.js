@@ -90,7 +90,19 @@ function isolatedJRegenSourceChain_(cfg, folder) {
       !written || written.schema !== 'isolation-j-no7-hand-raise/v1' || written.status !== 'completed' || written.automaticRetry !== false || written.folderId !== c.folderId || written.sourceFileId !== c.sourceFileId || written.kouseiSheetId !== c.kouseiSheetId || written.managementRow !== isolatedJRegenLedger_(cfg).row.rowNumber || written.sourceSha256Before !== c.sourceSha256Before || written.sourceSha256After !== c.sourceSha256After || written.other105Sha256 !== c.other105Sha256 || written.backupFileId !== snapshot.getId() || written.sheetCell !== c.sheetCell) {
     throw new Error('J再組版のcompleted取込/No.7 writer chainが一致しません');
   }
-  return { rows: rows, snapshotRows: isolatedJRegenRows_(snapshot.getBlob().getDataAsString('UTF-8'), 'J再組版の更新前台本'), sourceSha256: c.sourceSha256After };
+  const snapshotRows = isolatedJRegenRows_(snapshot.getBlob().getDataAsString('UTF-8'), 'J再組版の更新前台本');
+  isolatedJRegenSnapshotNo7_(snapshotRows);
+  return { rows: rows, snapshotRows: snapshotRows, sourceSha256: c.sourceSha256After };
+}
+// The retained pre-writer snapshot is the only acceptable source for the old
+// No.7 expectation in preflight.  Hash/record linkage alone is not enough:
+// it must also preserve the literal approved old text, exactly once.
+function isolatedJRegenSnapshotNo7_(snapshotRows) {
+  const matches = Array.isArray(snapshotRows) ? snapshotRows.filter(function(row) { return Number(row && row.no) === 7; }) : [];
+  if (matches.length !== 1 || typeof matches[0].daihon !== 'string' || matches[0].daihon !== ISOLATED_J_REGEN_AUDIT_.oldNo7) {
+    throw new Error('J再組版の更新前台本No.7が固定旧本文と一致しません');
+  }
+  return matches[0].daihon;
 }
 // generateSlides_ reads the regular structure-sheet rows, not the imported
 // JSON directly.  The JSON chain above still proves the No.7 writer source;
@@ -218,7 +230,7 @@ function isolatedJRegenStoredNote_(semanticText) {
   if (text.endsWith('\n')) throw new Error('J再組版の期待note本文が終端paragraph改行を含みます');
   return text + '\n';
 }
-function isolatedJRegenMapDeck_(folder, expectedByNo, expectedMapSha256, expectedDeckId, phase) {
+function isolatedJRegenMapDeck_(folder, expectedByNo, expectedMapSha256, expectedDeckId, phase, snapshotRows) {
   const c = ISOLATED_J_REGEN_AUDIT_, mapFile = isolatedJRegenOneFile_(folder, c.mapFileName, 'J再組版スライド対応表');
   if (mapFile.getId() !== c.mapFileId) throw new Error('J再組版スライド対応表IDが固定対象と一致しません');
   const mapText = mapFile.getBlob().getDataAsString('UTF-8');
@@ -247,7 +259,7 @@ function isolatedJRegenMapDeck_(folder, expectedByNo, expectedMapSha256, expecte
   // The existing deck was generated before the No.7 correction, so only this
   // preflight comparison uses the retained snapshot wording at No.7.  Fixed
   // 105/106 precedence remains the normal generator's current rule.
-  if (phase === 'before') expectedSemantic[7] = ISOLATED_J_REGEN_AUDIT_.oldNo7;
+  if (phase === 'before') expectedSemantic[7] = isolatedJRegenSnapshotNo7_(snapshotRows);
   fixedSkipped.forEach(function(no) { expectedSemantic[no] = ''; });
   const expected = {};
   Object.keys(expectedSemantic).forEach(function(no) { expected[Number(no)] = isolatedJRegenStoredNote_(expectedSemantic[no]); });
@@ -283,7 +295,7 @@ function isolatedJRegenerationContext_() {
 function isolatedJRegenerationPreflight_() {
   const context = isolatedJRegenerationContext_(), cfg = context.cfg, folder = context.folder, ledger = context.ledger, chain = context.chain;
   const mapFile = isolatedJRegenOneFile_(folder, ISOLATED_J_REGEN_AUDIT_.mapFileName, 'J再組版更新前対応表');
-  const before = isolatedJRegenMapDeck_(folder, context.generator.expectedByNo, null, JSON.parse(mapFile.getBlob().getDataAsString('UTF-8')).presentationId, 'before');
+  const before = isolatedJRegenMapDeck_(folder, context.generator.expectedByNo, null, JSON.parse(mapFile.getBlob().getDataAsString('UTF-8')).presentationId, 'before', chain.snapshotRows);
   return { cfg: cfg, folder: folder, ledger: ledger, chain: chain, generator: context.generator, before: before,
     beforeMapSha256: isolatedJRegenHash_(before.mapText), beforeDeckId: before.map.presentationId };
 }
@@ -312,7 +324,7 @@ function 隔離通し_J台本更新後のスライドを一度だけ組み直す
     // against Drive's whole world, but it catches a map/deck replacement that
     // happened after the initial preflight; the completed record then anchors
     // the exact post-build map and deck for a separate read-only comparison.
-    const confirmed = isolatedJRegenMapDeck_(target.folder, target.generator.expectedByNo, target.beforeMapSha256, target.beforeDeckId, 'before');
+    const confirmed = isolatedJRegenMapDeck_(target.folder, target.generator.expectedByNo, target.beforeMapSha256, target.beforeDeckId, 'before', target.chain.snapshotRows);
     if (!isolatedJRegenSameFingerprint_(confirmed.fingerprint, target.before.fingerprint)) throw new Error('J再組版の更新前deck fingerprintがpreflight後に変化しました');
     const prepared = { schema: 'isolation-j-no7-regeneration/v2', status: 'prepared', automaticRetry: false, folderId: c.folderId,
       sourceSha256: target.chain.sourceSha256, mapFileId: c.mapFileId, previousDeckId: target.beforeDeckId,

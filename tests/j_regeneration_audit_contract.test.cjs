@@ -112,12 +112,12 @@ function fixture() {
     return { name: CASE, ryoukin: '単一', rows: regularRows };
   };
   G.隔離通し_J台本_SHA256 = c.sourceSha256Before;
-  return { env, G, folder, mapFile, oldMap, nextMap, decks, afterRows, regularRows };
+  return { env, G, folder, mapFile, oldMap, nextMap, decks, afterRows, beforeRows, regularRows, snapshot };
 }
 function mapHash(f, map) { return f.G.隔離通し_J台本_sha256_(JSON.stringify(map)); }
 function completeRecord(f) {
   const c = f.G.ISOLATED_J_REGEN_AUDIT_, nextText = JSON.stringify(f.nextMap), expectedByNo = f.G.isolatedJRegenRegularGeneratorExpected_('kousei-test-12345678901234567890').expectedByNo;
-  const previous = f.G.isolatedJRegenMapDeck_(f.folder, expectedByNo, mapHash(f, f.oldMap), PRIOR, 'before');
+  const previous = f.G.isolatedJRegenMapDeck_(f.folder, expectedByNo, mapHash(f, f.oldMap), PRIOR, 'before', f.beforeRows);
   f.mapFile.content = nextText;
   assert.strictEqual(f.G.isolatedJRegenHash_(f.mapFile.getBlob().getDataAsString('UTF-8')), mapHash(f, f.nextMap));
   const after = f.G.isolatedJRegenMapDeck_(f.folder, expectedByNo, mapHash(f, f.nextMap), NEXT, 'after');
@@ -156,6 +156,19 @@ test('preflight derives semantic notes from the normal structure-Sheet field, no
   const f = fixture();
   f.regularRows[1].daihon = 'different structure-sheet note';
   assert.throws(() => f.G.隔離通し_J台本更新後の再組版前を検査する(), /notes/);
+});
+
+test('preflight rejects a chain-consistent snapshot whose retained No.7 is not the fixed old text', () => {
+  const f = fixture(), c = f.G.ISOLATED_J_REGEN_AUDIT_, altered = JSON.parse(f.snapshot.content);
+  altered[6].daihon = 'different retained old text';
+  f.snapshot.content = JSON.stringify(altered);
+  c.sourceSha256Before = f.G.隔離通し_J台本_sha256_(f.snapshot.content);
+  f.G.隔離通し_J台本_SHA256 = c.sourceSha256Before;
+  const importRecord = f.folder.getFilesByName(c.importRecordFileName).next();
+  importRecord.content = JSON.stringify({ status: 'completed', automaticRetry: false, folderId: FOLDER, targetScriptSha256: c.sourceSha256Before });
+  const writerRecord = f.folder.getFilesByName(c.writerRecordFileName).next();
+  const written = JSON.parse(writerRecord.content); written.sourceSha256Before = c.sourceSha256Before; writerRecord.content = JSON.stringify(written);
+  assert.throws(() => f.G.隔離通し_J台本更新後の再組版前を検査する(), /更新前台本No\.7/);
 });
 
 test('post audit requires completed record and validates only its new deck/map fingerprint', () => {
