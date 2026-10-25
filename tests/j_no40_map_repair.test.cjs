@@ -100,6 +100,12 @@ function fixture() {
   return { env, G, folder, mapFile, slides };
 }
 
+test('fixed No.7 is a natural participant action without emoji or production metadata', () => {
+  const { G } = fixture();
+  assert.strictEqual(G.FIXED_DAIHON[7], '例えば、皆さん経営していてこんなお悩みはありませんか？\n当てはまる方は、挙手マークを押してください。');
+  assert.doesNotMatch(G.FIXED_DAIHON[7], /🖐️|リアクション|挙手ありがとうございます|避け/u);
+});
+
 test('current J audit is read-only and reports the missing No.40 selector without using the historical deck audit', () => {
   const { env, G } = fixture();
   const before = env.log.length;
