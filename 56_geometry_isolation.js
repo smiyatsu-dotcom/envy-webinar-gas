@@ -519,6 +519,124 @@ function 隔離通し_J台本を正規取込する(daihonText) {
 // fail-closed routing key used by normalGeometryConfigForCase_.
 const ISOLATION_GEOMETRY_CASE = "隔離通し診断テスト社";
 
+// No.7 の本人指定文は、既存一回取込の完了後に出た。通常の processImports_
+// は全106行を再取込するため、この限定修正には使わない。元JSONと構成Sheet
+// E列の旧文を照合して、No.7だけを更新する一回限りの固定隔離writer。
+var 隔離通し_No7挙手文言修正_ = {
+  sourceFileId: '1g08BmnhKnzdtepHhUNFkAr2mhjww2cnC',
+  sourceFileName: '【台本JSON】隔離通し診断テスト社.txt',
+  expectedSourceSha256: '7eb361136315b71a1505d50e94cbeef12d28feb1846631ec67370072e5331645',
+  oldText: '例えば、皆さん経営していてこんなお悩みはありませんか？\nもし、当てはまるものがあれば、挙手🖐️マークでリアクションしていただけると嬉しいです！',
+  newText: '例えば、皆さん経営していてこんなお悩みはありませんか？\n当てはまる方は、挙手マークを押してください。',
+  snapshotFileName: '【保全】No7挙手文言修正前台本.txt',
+  recordFileName: '【不確定】No7挙手文言修正記録.json'
+};
+
+function 隔離通し_No7挙手文言修正_既存なし_(folder, name, label) {
+  var files = folder.getFilesByName(name);
+  if (!files.hasNext()) return;
+  files.next();
+  if (files.hasNext()) throw new Error(label + ' が複数あります');
+  throw new Error(label + ' が既にあります。自動再実行せず手動精査してください');
+}
+
+function 隔離通し_No7挙手文言修正_他105行hash_(rows) {
+  return 隔離通し_J台本_sha256_(JSON.stringify(rows.filter(function(row) { return Number(row.no) !== 7; })));
+}
+
+function 隔離通し_No7挙手文言修正_固定対象を読む_(cfg) {
+  var c = 隔離通し_No7挙手文言修正_;
+  if (String(FIXED_DAIHON[7] || '') !== c.newText) throw new Error('No.7固定台本が本人指定文と一致しません');
+  var output = DriveApp.getFolderById(cfg.OUTPUT_FOLDER_ID);
+  if (output.getId() !== 隔離通し_生成_生成物rootID || output.getName() !== '【出力】生成物') throw new Error('No.7修正の生成物rootが固定fixtureと一致しません');
+  var folder = caseFolderIfExists_(cfg, 隔離通し_生成_案件名);
+  if (!folder || folder.getId() !== 隔離通し_J台本_案件フォルダID || folder.getName() !== 隔離通し_生成_案件名) throw new Error('No.7修正の案件フォルダが固定隔離fixtureと一致しません');
+  隔離通し_生成の親を確かめる_(folder, output.getId(), 'No.7修正の案件フォルダ');
+  隔離通し_No7挙手文言修正_既存なし_(folder, c.snapshotFileName, 'No.7修正前保全');
+  隔離通し_No7挙手文言修正_既存なし_(folder, c.recordFileName, 'No.7修正記録');
+
+  var mgmt = mgmtSheet_(cfg), rows = mgmt.getDataRange().getValues();
+  var nonEmpty = rows.slice(1).filter(function(row) { return row.some(function(cell) { return String(cell == null ? '' : cell).trim() !== ''; }); });
+  var matches = [], sameHearing = [];
+  rows.slice(1).forEach(function(row, index) {
+    var exact = String(row[0] || '').trim() === 隔離通し_生成_ヒアリングID && String(row[1] || '').trim() === 隔離通し_生成_案件名 + '_ヒアリングシート' && String(row[流れ_列 - 1] || '').trim() === 流れ_新;
+    if (exact) matches.push({ row: row, rowNumber: index + 2 });
+    if (String(row[0] || '').trim() === 隔離通し_生成_ヒアリングID) sameHearing.push(index + 2);
+  });
+  if (nonEmpty.length !== 1 || matches.length !== 1 || sameHearing.length !== 1) throw new Error('No.7修正の固定台帳行が一意ではありません');
+  var ledger = matches[0];
+  if (registry_(cfg)[隔離通し_生成_ヒアリングID] !== ledger.rowNumber) throw new Error('No.7修正のregistry更新先が固定台帳行と一致しません');
+  var kouseiId = idFromUrl_(String(ledger.row[3] || '')), ss = SpreadsheetApp.openById(kouseiId), settings = ss.getSheetByName(TABS.SETTINGS);
+  if (!settings || String(settings.getRange('B1').getValue()).trim() !== 隔離通し_生成_案件名 + '_ヒアリングシート' || String(settings.getRange('B4').getValue()).trim() !== 隔離通し_生成_ヒアリングID || settings.getRange('B2').getValue() !== false || settings.getRange('B22').getValue() !== false) throw new Error('No.7修正の固定構成シートが未承認・未納品のfixtureではありません');
+
+  var source = DriveApp.getFileById(c.sourceFileId);
+  if (!source || source.getId() !== c.sourceFileId || source.getName() !== c.sourceFileName || source.isTrashed()) throw new Error('No.7修正の元台本JSONが固定ID・名称と一致しません');
+  var parents = source.getParents();
+  if (!parents.hasNext() || parents.next().getId() !== folder.getId() || parents.hasNext()) throw new Error('No.7修正の元台本JSONの親が固定隔離案件ではありません');
+  var sourceText = source.getBlob().getDataAsString('UTF-8');
+  if (隔離通し_J台本_sha256_(sourceText) !== c.expectedSourceSha256) throw new Error('No.7修正の元台本JSONが確認済み旧SHA-256と一致しません');
+  var sourceRows;
+  try { sourceRows = JSON.parse(sourceText); } catch (e) { throw new Error('No.7修正の元台本JSONを読めません'); }
+  if (!Array.isArray(sourceRows) || sourceRows.length !== 106) throw new Error('No.7修正の元台本JSONが106行配列ではありません');
+  var no7 = sourceRows.filter(function(row) { return Number(row && row.no) === 7; });
+  if (no7.length !== 1 || String(no7[0].daihon || '') !== c.oldText) throw new Error('No.7修正の元台本JSONの旧文が確認できません');
+  var oldJson = JSON.stringify(c.oldText), newJson = JSON.stringify(c.newText);
+  if (sourceText.split(oldJson).length !== 2) throw new Error('No.7修正の元台本JSONで旧文を一意に置換できません');
+  var nextText = sourceText.replace(oldJson, newJson), nextRows;
+  try { nextRows = JSON.parse(nextText); } catch (e2) { throw new Error('No.7修正後の元台本JSONを読めません'); }
+  var other105 = 隔離通し_No7挙手文言修正_他105行hash_(sourceRows);
+  var nextNo7 = nextRows.filter(function(row) { return Number(row && row.no) === 7; });
+  if (隔離通し_No7挙手文言修正_他105行hash_(nextRows) !== other105 || nextNo7.length !== 1 || String(nextNo7[0].daihon || '') !== c.newText) throw new Error('No.7修正で対象外105行または本人指定文が一致しません');
+  var tabs = {};
+  [TABS.INTRO, TABS.PROBLEM, TABS.STORY, TABS.OFFER].forEach(function(tab) { var sh = ss.getSheetByName(tab); if (!sh) throw new Error('No.7修正の構成シートにタブがありません: ' + tab); tabs[tab] = sh.getDataRange().getValues(); });
+  var fix = [{ no: 7, 列: 'E', 前: c.oldText, 後: c.newText }], plan = 直すセルを当てる_(tabs, fix);
+  if (plan.違う.length || plan.書く.length !== 1 || plan.書く[0].列 !== 5) throw new Error('No.7修正の構成Sheet E列旧文が確認できません: ' + plan.違う.join('・'));
+  return { folder: folder, source: source, sourceText: sourceText, nextText: nextText, other105: other105, ss: ss, kouseiId: kouseiId, ledger: ledger, plan: plan.書く[0], fix: fix };
+}
+
+// 書込み前の固定対象検査。Drive/Sheetへの変更、取込、再生成、通知は行わない。
+function 隔離通し_No7挙手文言修正を検査する() {
+  var cfg = 隔離通し_生成設定を作る_();
+  return withIsolationTestConfig_(cfg, function() {
+    var target = 隔離通し_No7挙手文言修正_固定対象を読む_(cfg), c = 隔離通し_No7挙手文言修正_;
+    return {
+      ok: true,
+      mode: 'read-only-fixed-no7-preflight',
+      sourceFileId: target.source.getId(),
+      sourceSha256Before: 隔離通し_J台本_sha256_(target.sourceText),
+      other105Sha256: target.other105,
+      sheetCell: target.plan.タブ + '!E' + target.plan.行,
+      expectedOldTextSha256: 隔離通し_J台本_sha256_(c.oldText),
+      actions: { sourceWritten: false, sheetWritten: false, imported: false, regenerated: false, audioStarted: false, delivered: false, notified: false }
+    };
+  });
+}
+
+// 元JSONと構成Sheet E列だけを更新する。取込・再生成・音声・納品・通知は呼ばない。
+function 隔離通し_No7挙手文言を一度反映する() {
+  var cfg = 隔離通し_生成設定を作る_();
+  return withIsolationTestConfig_(cfg, function() {
+    var target = 隔離通し_No7挙手文言修正_固定対象を読む_(cfg), c = 隔離通し_No7挙手文言修正_;
+    var backup = target.folder.createFile(c.snapshotFileName, target.sourceText, MimeType.PLAIN_TEXT);
+    var record = target.folder.createFile(c.recordFileName, JSON.stringify({ schema: 'isolation-j-no7-hand-raise/v1', status: 'prepared', automaticRetry: false, folderId: target.folder.getId(), sourceFileId: target.source.getId(), kouseiSheetId: target.kouseiId, managementRow: target.ledger.rowNumber, sourceSha256Before: 隔離通し_J台本_sha256_(target.sourceText), other105Sha256: target.other105, backupFileId: backup.getId(), recordedAt: new Date().toISOString() }), MimeType.PLAIN_TEXT);
+    try {
+      target.source.setContent(target.nextText);
+      var sourceAfter = target.source.getBlob().getDataAsString('UTF-8'), rowsAfter = JSON.parse(sourceAfter), afterNo7 = rowsAfter.filter(function(row) { return Number(row && row.no) === 7; });
+      if (隔離通し_No7挙手文言修正_他105行hash_(rowsAfter) !== target.other105 || afterNo7.length !== 1 || String(afterNo7[0].daihon || '') !== c.newText) throw new Error('No.7修正後の元台本JSON読み戻しが一致しません');
+      var wrote = 直すセルを書く_(target.ss, target.fix);
+      if (wrote.違う.length || wrote.書いた.length !== 1 || wrote.書いた[0].タブ !== target.plan.タブ || wrote.書いた[0].行 !== target.plan.行 || wrote.書いた[0].列 !== 5) throw new Error('No.7修正の構成Sheet E列を書けません: ' + wrote.違う.join('・'));
+      if (String(target.ss.getSheetByName(target.plan.タブ).getRange(target.plan.行, 5).getValue() || '') !== c.newText) throw new Error('No.7修正後の構成Sheet E列読み戻しが一致しません');
+      record.setContent(JSON.stringify({ schema: 'isolation-j-no7-hand-raise/v1', status: 'completed', automaticRetry: false, folderId: target.folder.getId(), sourceFileId: target.source.getId(), kouseiSheetId: target.kouseiId, managementRow: target.ledger.rowNumber, sourceSha256Before: 隔離通し_J台本_sha256_(target.sourceText), sourceSha256After: 隔離通し_J台本_sha256_(sourceAfter), other105Sha256: target.other105, backupFileId: backup.getId(), sheetCell: target.plan.タブ + '!E' + target.plan.行, updatedAt: new Date().toISOString() }));
+      return { ok: true, mode: 'fixed-no7-source-and-sheet-only', sourceFileId: target.source.getId(), sourceSha256Before: 隔離通し_J台本_sha256_(target.sourceText), sourceSha256After: 隔離通し_J台本_sha256_(sourceAfter), other105Sha256: target.other105, sheetCell: target.plan.タブ + '!E' + target.plan.行, actions: { imported: false, regenerated: false, audioStarted: false, delivered: false, notified: false } };
+    } catch (e) {
+      var currentHash = 'unreadable'; try { currentHash = 隔離通し_J台本_sha256_(target.source.getBlob().getDataAsString('UTF-8')); } catch (ignore) { }
+      var failure = String(e && e.message ? e.message : e).replace(/[\r\n]+/g, ' ').slice(0, 240);
+      try { record.setContent(JSON.stringify({ schema: 'isolation-j-no7-hand-raise/v1', status: 'uncertain', automaticRetry: false, folderId: target.folder.getId(), sourceFileId: target.source.getId(), kouseiSheetId: target.kouseiId, managementRow: target.ledger.rowNumber, sourceSha256Before: 隔離通し_J台本_sha256_(target.sourceText), currentSourceSha256: currentHash, other105Sha256: target.other105, backupFileId: backup.getId(), failure: failure, recordedAt: new Date().toISOString() })); } catch (recordError) { }
+      throw new Error('No.7修正の結果が不確定です。自動再実行せず、固定隔離案件の保全・記録を手動精査してください: ' + failure);
+    }
+  });
+}
+
 function 隔離通しスライド失敗を読む() {
   var cfg = 隔離通し_生成設定を作る_();
   return withIsolationTestConfig_(cfg, function () {
