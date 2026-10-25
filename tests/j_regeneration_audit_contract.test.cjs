@@ -63,7 +63,8 @@ function slidesFor(map, scriptRows) {
     const elements = [];
     if (index === 0) elements.push(image(item.pageId + '-image'));
     if (index === 39) elements.push(shape(item.pageId + '-heading', 'heading-40'));
-    return page(item.pageId, index === 103 ? '' : scriptRows[index].daihon, elements, index === 103);
+    const semanticNote = index === 103 ? '' : scriptRows[index].daihon;
+    return page(item.pageId, semanticNote + '\n', elements, index === 103);
   });
 }
 
@@ -85,6 +86,11 @@ function fixture() {
   const c = G.ISOLATED_J_REGEN_AUDIT_;
   c.folderId = FOLDER; c.sourceFileId = SOURCE; c.kouseiSheetId = kousei.getId(); c.mapFileId = MAP_ID; c.oldNo7 = OLD7; c.newNo7 = G.FIXED_DAIHON[7];
   const afterRows = rows(G), beforeRows = JSON.parse(JSON.stringify(afterRows)); beforeRows[6].daihon = OLD7;
+  // The normal generator obtains its speaker notes from the structure Sheet,
+  // rather than directly from the imported JSON.  Keep that actual field
+  // relationship explicit in the fixture.  No.104 is the sole fixed skip.
+  const regularRows = {};
+  afterRows.forEach(row => { regularRows[row.no] = { kousei: row.no === 104 ? '' : 'configured-' + row.no, daihon: row.daihon }; });
   const sourceText = JSON.stringify(afterRows), beforeText = JSON.stringify(beforeRows);
   c.sourceSha256Before = G.隔離通し_J台本_sha256_(beforeText); c.sourceSha256After = G.隔離通し_J台本_sha256_(sourceText); c.other105Sha256 = G.隔離通し_J台本_sha256_(JSON.stringify(afterRows.filter(row => row.no !== 7)));
   const source = folder.addFile(c.sourceFileName, sourceText); source.getId = () => SOURCE;
@@ -101,17 +107,20 @@ function fixture() {
     return originalFile(id);
   };
   G.SlidesApp = { openById: id => { if (!decks[id]) throw new Error('unexpected deck ' + id); return { getSlides: () => decks[id].slides }; } };
+  G.readKouseiSheet_ = id => {
+    if (id !== kousei.getId()) throw new Error('unexpected structure sheet ' + id);
+    return { name: CASE, ryoukin: '単一', rows: regularRows };
+  };
   G.隔離通し_J台本_SHA256 = c.sourceSha256Before;
-  return { env, G, folder, mapFile, oldMap, nextMap, decks, afterRows };
+  return { env, G, folder, mapFile, oldMap, nextMap, decks, afterRows, regularRows };
 }
 function mapHash(f, map) { return f.G.隔離通し_J台本_sha256_(JSON.stringify(map)); }
 function completeRecord(f) {
-  const c = f.G.ISOLATED_J_REGEN_AUDIT_, nextText = JSON.stringify(f.nextMap), beforeRows = JSON.parse(JSON.stringify(f.afterRows));
-  beforeRows[6].daihon = OLD7;
-  const previous = f.G.isolatedJRegenMapDeck_(f.folder, beforeRows, mapHash(f, f.oldMap), PRIOR, 'before');
+  const c = f.G.ISOLATED_J_REGEN_AUDIT_, nextText = JSON.stringify(f.nextMap), expectedByNo = f.G.isolatedJRegenRegularGeneratorExpected_('kousei-test-12345678901234567890').expectedByNo;
+  const previous = f.G.isolatedJRegenMapDeck_(f.folder, expectedByNo, mapHash(f, f.oldMap), PRIOR, 'before');
   f.mapFile.content = nextText;
   assert.strictEqual(f.G.isolatedJRegenHash_(f.mapFile.getBlob().getDataAsString('UTF-8')), mapHash(f, f.nextMap));
-  const after = f.G.isolatedJRegenMapDeck_(f.folder, f.afterRows, mapHash(f, f.nextMap), NEXT, 'after');
+  const after = f.G.isolatedJRegenMapDeck_(f.folder, expectedByNo, mapHash(f, f.nextMap), NEXT, 'after');
   f.folder.addFile(c.regenerationRecordFileName, JSON.stringify({ schema: 'isolation-j-no7-regeneration/v2', status: 'completed', automaticRetry: false, folderId: FOLDER, sourceSha256: c.sourceSha256After, mapFileId: MAP_ID, previousDeckId: PRIOR, previousMapSha256: mapHash(f, f.oldMap), previousDeckFingerprint: previous.fingerprint, previousTimestampDiagnostic: previous.timestampDiagnostic, newDeckId: NEXT, newMapSha256: mapHash(f, f.nextMap), newDeckFingerprint: after.fingerprint, newTimestampDiagnostic: after.timestampDiagnostic }));
 }
 function record(f) { return f.folder.getFilesByName(f.G.ISOLATED_J_REGEN_AUDIT_.regenerationRecordFileName).next(); }
@@ -123,6 +132,30 @@ test('preflight accepts source/writer chain with timestamp diagnostic mismatch a
   assert.strictEqual(result.previousDeckFingerprint.pageCount, 106); assert.strictEqual(result.previousDeckFingerprint.metadataOnlyElements, 1);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(result.previousDeckFingerprint.metadataOnly)), [{ type: 'IMAGE', count: 1, limitation: 'image-pixels-and-dynamic-content-url-not-readable-via-SlidesApp' }]);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(result.actions)), { regenerated: false, imported: false, audioStarted: false, delivered: false, notified: false }); assert.strictEqual(f.env.log.length, before);
+});
+
+test('only the SlidesApp terminal paragraph LF is accepted; semantic whitespace and an extra LF fail closed', () => {
+  const f = fixture();
+  assert.strictEqual(f.G.isolatedJRegenStoredNote_('本文\n内部改行'), '本文\n内部改行\n');
+  assert.strictEqual(f.G.isolatedJRegenStoredNote_(''), '\n');
+  assert.throws(() => f.G.isolatedJRegenStoredNote_('本文\n'), /終端paragraph改行/);
+  assert.throws(() => f.G.isolatedJRegenStoredNote_('本文\r\n'), /終端paragraph改行/);
+  f.decks[PRIOR].slides[0].setNote(f.decks[PRIOR].slides[0].getNotesPage().getSpeakerNotesShape().getText().asString() + '\n');
+  assert.throws(() => f.G.隔離通し_J台本更新後の再組版前を検査する(), /notes/);
+  const g = fixture();
+  const unchanged = g.decks[PRIOR].slides[6].getNotesPage().getSpeakerNotesShape().getText().asString();
+  g.decks[PRIOR].slides[6].setNote(unchanged.replace('\n', ' \n'));
+  assert.throws(() => g.G.隔離通し_J台本更新後の再組版前を検査する(), /notes/);
+  const h = fixture();
+  const hUnchanged = h.decks[PRIOR].slides[1].getNotesPage().getSpeakerNotesShape().getText().asString();
+  h.decks[PRIOR].slides[1].setNote(hUnchanged.replace(/\n$/, '\r\n'));
+  assert.throws(() => h.G.隔離通し_J台本更新後の再組版前を検査する(), /notes/);
+});
+
+test('preflight derives semantic notes from the normal structure-Sheet field, not the JSON transport copy', () => {
+  const f = fixture();
+  f.regularRows[1].daihon = 'different structure-sheet note';
+  assert.throws(() => f.G.隔離通し_J台本更新後の再組版前を検査する(), /notes/);
 });
 
 test('post audit requires completed record and validates only its new deck/map fingerprint', () => {
@@ -144,7 +177,10 @@ test('real normal builder keeps fixed isolation config and restores it after fai
   const f = fixture(), observed = []; f.G.新_先に組む回_ = true;
   f.G.upsertRow_ = cfg => { observed.push({ step: 'ledger-write', cfg: Object.assign({}, cfg) }); }; f.G.setKouseiStatus_ = () => {};
   f.G.知らせを積む_ = () => { throw new Error('notification must not be reached'); }; f.G.止まったを知らせる_ = () => { throw new Error('notification must not be reached'); };
-  f.G.readKouseiSheet_ = id => { observed.push({ step: 'read-kousei', id, cfg: Object.assign({}, f.G.getConfig_()) }); return { name: CASE, ryoukin: '単一', rows: {} }; };
+  f.G.readKouseiSheet_ = id => {
+    if (f.G.ISOLATION_TEST_CONFIG_) observed.push({ step: 'read-kousei', id, cfg: Object.assign({}, f.G.getConfig_()) });
+    return { name: CASE, ryoukin: '単一', rows: f.regularRows };
+  };
   f.G.caseFolder_ = (cfg, name) => { observed.push({ step: 'case-folder', name, cfg: Object.assign({}, cfg), active: Object.assign({}, f.G.getConfig_()) }); throw new Error('stop after checking isolated output root'); };
   assert.throws(() => f.G.隔離通し_J台本更新後のスライドを一度だけ組み直す(), /結果が不確定/); assert.deepStrictEqual(observed.map(item => item.step), ['ledger-write', 'read-kousei', 'case-folder', 'ledger-write']);
   observed.forEach(item => { const cfg = item.cfg; assert.strictEqual(cfg.ISOLATION_TEST, true); assert.strictEqual(cfg.INPUT_FOLDER_ID, '1Mxch8d4SEbddMfx-C2slbmQWWa1Uz16u'); assert.strictEqual(cfg.OUTPUT_FOLDER_ID, '18-xhLrskU8M9DvW2Rurqg5ST_NrOiSM2'); assert.strictEqual(cfg.ASSETS_FOLDER_ID, 'isolation-assets'); assert.strictEqual(cfg.MGMT_SHEET_ID, '16UgS3scd3X2D2Qqhzd1WfJuGkuNcOt5WbekQZLyKDpg'); });

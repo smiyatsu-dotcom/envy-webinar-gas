@@ -92,6 +92,24 @@ function isolatedJRegenSourceChain_(cfg, folder) {
   }
   return { rows: rows, snapshotRows: isolatedJRegenRows_(snapshot.getBlob().getDataAsString('UTF-8'), 'J再組版の更新前台本'), sourceSha256: c.sourceSha256After };
 }
+// generateSlides_ reads the regular structure-sheet rows, not the imported
+// JSON directly.  The JSON chain above still proves the No.7 writer source;
+// this separate read-only projection proves the field/type actually supplied
+// to the normal builder, including the regular skip decision.
+function isolatedJRegenRegularGeneratorExpected_(kouseiId) {
+  const data = readKouseiSheet_(kouseiId);
+  if (!data || !data.rows || typeof data.rows !== 'object') throw new Error('J再組版の固定構成Sheetを読めません');
+  const defs = rowDefs_(), expectedByNo = {}, skipByNo = {};
+  if (!Array.isArray(defs) || defs.length !== 106) throw new Error('J再組版の生成定義が106行ありません');
+  defs.forEach(function(def) {
+    const no = Number(def && def.no), row = data.rows[no];
+    if (!Number.isInteger(no) || no < 1 || no > 106 || Object.prototype.hasOwnProperty.call(expectedByNo, no) || !row || typeof row !== 'object') throw new Error('J再組版の構成Sheetが生成定義1〜106と一致しません');
+    const skipped = isSkipRow_(def, row);
+    skipByNo[no] = skipped;
+    expectedByNo[no] = skipped ? '' : isolatedJCurrentNormalizeLineEndings_(normalizeWebinarTerms_(row.daihon || ''));
+  });
+  return { expectedByNo: expectedByNo, skipByNo: skipByNo };
+}
 // Drive v3 and DriveApp can legitimately report a slightly different modified
 // timestamp for the same Slides file.  A timestamp therefore remains useful
 // diagnostic evidence, but is not a content or revision proof.  The contract
@@ -155,7 +173,10 @@ function isolatedJRegenDeckFingerprint_(slides, map) {
     if (!Array.isArray(elements)) throw new Error('J再組版deckのページ要素を配列として読めません');
     let skipped;
     try { skipped = slide.isSkipped() === true; } catch (e) { throw new Error('J再組版deckのスキップ状態を読めません'); }
-    return { slideNo: page.slideNo, pageId: page.pageId, skipped: skipped, note: note.text,
+    // Preserve the representation returned by SlidesApp here.  This contract
+    // permits the one paragraph LF we construct below, but must not make a
+    // CRLF or any other raw storage difference disappear before fingerprinting.
+    return { slideNo: page.slideNo, pageId: page.pageId, skipped: skipped, note: note.rawText,
       elements: elements.map(function(element) { return isolatedJRegenElementFingerprint_(element, coverage); }) };
   });
   const content = { schema: 'isolation-j-deck-fingerprint/v1', pages: pages };
@@ -188,7 +209,16 @@ function isolatedJRegenValidFingerprint_(fingerprint) {
     fingerprint.skippedSlideNos.every(function(no) { return Number.isInteger(no) && no >= 1 && no <= 106; }) &&
     fingerprint.metadataOnly.every(function(item) { return !!item && typeof item.type === 'string' && Number.isInteger(item.count) && item.count > 0 && typeof item.limitation === 'string'; });
 }
-function isolatedJRegenMapDeck_(folder, expectedRows, expectedMapSha256, expectedDeckId, phase) {
+// SlidesApp TextRange.asString() represents the terminal paragraph that
+// setText() creates as exactly one final LF, including for an empty note.  It
+// is a storage boundary, not a license to trim: source text may not already
+// end in a paragraph separator, and all internal LF/whitespace remains exact.
+function isolatedJRegenStoredNote_(semanticText) {
+  const text = isolatedJCurrentNormalizeLineEndings_(semanticText);
+  if (text.endsWith('\n')) throw new Error('J再組版の期待note本文が終端paragraph改行を含みます');
+  return text + '\n';
+}
+function isolatedJRegenMapDeck_(folder, expectedByNo, expectedMapSha256, expectedDeckId, phase) {
   const c = ISOLATED_J_REGEN_AUDIT_, mapFile = isolatedJRegenOneFile_(folder, c.mapFileName, 'J再組版スライド対応表');
   if (mapFile.getId() !== c.mapFileId) throw new Error('J再組版スライド対応表IDが固定対象と一致しません');
   const mapText = mapFile.getBlob().getDataAsString('UTF-8');
@@ -211,14 +241,25 @@ function isolatedJRegenMapDeck_(folder, expectedRows, expectedMapSha256, expecte
     return actual !== (fixedSkipped.indexOf(page.slideNo) !== -1);
   }).map(function(page) { return page.slideNo; });
   if (skipMismatches.length) throw new Error('J再組版deckの固定スキップ状態が一致しません: ' + skipMismatches.join(','));
-  const expected = isolatedJCurrentNormalGeneratorExpected_(expectedRows).expectedByNo;
+  if (!expectedByNo || typeof expectedByNo !== 'object' || Object.keys(expectedByNo).length !== 106 || Object.keys(expectedByNo).some(function(key) { const no = Number(key); return !Number.isInteger(no) || no < 1 || no > 106 || typeof expectedByNo[key] !== 'string'; })) throw new Error('J再組版の通常生成期待本文が106行ではありません');
+  const expectedSemantic = {};
+  Object.keys(expectedByNo).forEach(function(no) { expectedSemantic[Number(no)] = expectedByNo[no]; });
   // The existing deck was generated before the No.7 correction, so only this
   // preflight comparison uses the retained snapshot wording at No.7.  Fixed
   // 105/106 precedence remains the normal generator's current rule.
-  if (phase === 'before') expected[7] = ISOLATED_J_REGEN_AUDIT_.oldNo7;
-  fixedSkipped.forEach(function(no) { expected[no] = ''; });
+  if (phase === 'before') expectedSemantic[7] = ISOLATED_J_REGEN_AUDIT_.oldNo7;
+  fixedSkipped.forEach(function(no) { expectedSemantic[no] = ''; });
+  const expected = {};
+  Object.keys(expectedSemantic).forEach(function(no) { expected[Number(no)] = isolatedJRegenStoredNote_(expectedSemantic[no]); });
   const mismatches = [];
-  map.pages.forEach(function(page) { const note = isolatedJCurrentNote_(byId[page.pageId]); if (!note.readable || note.text !== expected[page.slideNo]) mismatches.push(page.slideNo); });
+  map.pages.forEach(function(page) {
+    const note = isolatedJCurrentNote_(byId[page.pageId]);
+    // Compare the raw SlidesApp value.  Existing broad line-ending
+    // normalization is appropriate for historical diagnostics, but would
+    // incorrectly hide CRLF here; this release contract accepts only the
+    // exact terminal LF produced by setText().
+    if (!note.readable || note.rawText !== expected[page.slideNo]) mismatches.push(page.slideNo);
+  });
   if (mismatches.length) throw new Error('J再組版deckのnotesが期待台本と一致しません: ' + mismatches.join(','));
   const geometryFile = isolatedJRegenOneFile_(folder, c.geometryFileName, 'J再組版配置指定');
   let geometry;
@@ -236,14 +277,14 @@ function isolatedJRegenMapDeck_(folder, expectedRows, expectedMapSha256, expecte
     notesSha256: fingerprint.notesSha256, fingerprint: fingerprint, timestampDiagnostic: timestampDiagnostic };
 }
 function isolatedJRegenerationContext_() {
-  const cfg = 隔離通し_生成設定を作る_(), folder = isolatedJRegenFolder_(cfg), ledger = isolatedJRegenLedger_(cfg), chain = isolatedJRegenSourceChain_(cfg, folder);
-  return { cfg: cfg, folder: folder, ledger: ledger, chain: chain };
+  const cfg = 隔離通し_生成設定を作る_(), folder = isolatedJRegenFolder_(cfg), ledger = isolatedJRegenLedger_(cfg), chain = isolatedJRegenSourceChain_(cfg, folder), generator = isolatedJRegenRegularGeneratorExpected_(ledger.kouseiId);
+  return { cfg: cfg, folder: folder, ledger: ledger, chain: chain, generator: generator };
 }
 function isolatedJRegenerationPreflight_() {
   const context = isolatedJRegenerationContext_(), cfg = context.cfg, folder = context.folder, ledger = context.ledger, chain = context.chain;
   const mapFile = isolatedJRegenOneFile_(folder, ISOLATED_J_REGEN_AUDIT_.mapFileName, 'J再組版更新前対応表');
-  const before = isolatedJRegenMapDeck_(folder, chain.snapshotRows, null, JSON.parse(mapFile.getBlob().getDataAsString('UTF-8')).presentationId, 'before');
-  return { cfg: cfg, folder: folder, ledger: ledger, chain: chain, before: before,
+  const before = isolatedJRegenMapDeck_(folder, context.generator.expectedByNo, null, JSON.parse(mapFile.getBlob().getDataAsString('UTF-8')).presentationId, 'before');
+  return { cfg: cfg, folder: folder, ledger: ledger, chain: chain, generator: context.generator, before: before,
     beforeMapSha256: isolatedJRegenHash_(before.mapText), beforeDeckId: before.map.presentationId };
 }
 function 隔離通し_J台本更新後の再組版前を検査する() {
@@ -271,7 +312,7 @@ function 隔離通し_J台本更新後のスライドを一度だけ組み直す
     // against Drive's whole world, but it catches a map/deck replacement that
     // happened after the initial preflight; the completed record then anchors
     // the exact post-build map and deck for a separate read-only comparison.
-    const confirmed = isolatedJRegenMapDeck_(target.folder, target.chain.snapshotRows, target.beforeMapSha256, target.beforeDeckId, 'before');
+    const confirmed = isolatedJRegenMapDeck_(target.folder, target.generator.expectedByNo, target.beforeMapSha256, target.beforeDeckId, 'before');
     if (!isolatedJRegenSameFingerprint_(confirmed.fingerprint, target.before.fingerprint)) throw new Error('J再組版の更新前deck fingerprintがpreflight後に変化しました');
     const prepared = { schema: 'isolation-j-no7-regeneration/v2', status: 'prepared', automaticRetry: false, folderId: c.folderId,
       sourceSha256: target.chain.sourceSha256, mapFileId: c.mapFileId, previousDeckId: target.beforeDeckId,
@@ -284,7 +325,7 @@ function 隔離通し_J台本更新後のスライドを一度だけ組み直す
       const mapFile = isolatedJRegenOneFile_(target.folder, c.mapFileName, 'J再組版後対応表');
       const map = JSON.parse(mapFile.getBlob().getDataAsString('UTF-8'));
       if (!map || typeof map.presentationId !== 'string' || !map.presentationId || map.presentationId === target.beforeDeckId) throw new Error('J再組版後の新deck IDを対応表から確定できません');
-      const after = isolatedJRegenMapDeck_(target.folder, target.chain.rows, null, map.presentationId, 'after'), afterMapSha256 = isolatedJRegenHash_(after.mapText);
+      const after = isolatedJRegenMapDeck_(target.folder, target.generator.expectedByNo, null, map.presentationId, 'after'), afterMapSha256 = isolatedJRegenHash_(after.mapText);
       record.setContent(JSON.stringify({ schema: 'isolation-j-no7-regeneration/v2', status: 'completed', automaticRetry: false, folderId: c.folderId,
         sourceSha256: target.chain.sourceSha256, mapFileId: c.mapFileId, previousDeckId: target.beforeDeckId,
         previousMapSha256: target.beforeMapSha256, previousDeckFingerprint: target.before.fingerprint,
@@ -305,7 +346,7 @@ function 隔離通し_J台本更新後の再組版を読取検品する() {
   let record;
   try { record = JSON.parse(recordFile.getBlob().getDataAsString('UTF-8')); } catch (e) { throw new Error('J再組版実行記録JSONを読めません'); }
   if (!record || record.schema !== 'isolation-j-no7-regeneration/v2' || record.status !== 'completed' || record.automaticRetry !== false || record.folderId !== c.folderId || record.sourceSha256 !== c.sourceSha256After || record.mapFileId !== c.mapFileId || typeof record.previousDeckId !== 'string' || typeof record.previousMapSha256 !== 'string' || !isolatedJRegenValidFingerprint_(record.previousDeckFingerprint) || typeof record.newDeckId !== 'string' || !record.newDeckId || record.newDeckId === record.previousDeckId || typeof record.newMapSha256 !== 'string' || !isolatedJRegenValidFingerprint_(record.newDeckFingerprint) || !record.previousTimestampDiagnostic || !record.newTimestampDiagnostic) throw new Error('J再組版completed実行記録が固定契約と一致しません');
-  const after = isolatedJRegenMapDeck_(target.folder, target.chain.rows, record.newMapSha256, record.newDeckId, 'after');
+  const after = isolatedJRegenMapDeck_(target.folder, target.generator.expectedByNo, record.newMapSha256, record.newDeckId, 'after');
   if (!isolatedJRegenSameFingerprint_(after.fingerprint, record.newDeckFingerprint)) throw new Error('J再組版後deck fingerprintがcompleted実行記録と一致しません');
   return { ok: true, mode: 'read-only-after-no7-regeneration', newDeckId: record.newDeckId, mapFileId: c.mapFileId,
     mapSha256: record.newMapSha256, deckFingerprint: after.fingerprint, timestampDiagnostic: after.timestampDiagnostic,
