@@ -1,4 +1,4 @@
-const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('assert'),root=path.join(__dirname,'..'),ctx={console,Logger:{log(){}},PropertiesService:{},DriveApp:{},SpreadsheetApp:{},SlidesApp:{},DocumentApp:{},MimeType:{},LockService:{},ScriptApp:{}};vm.createContext(ctx);fs.readdirSync(root).filter(f=>f.endsWith('.js')).sort().forEach(f=>vm.runInContext(fs.readFileSync(path.join(root,f),'utf8').replace(/^const /gm,'var '),ctx));
+const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('assert'),root=path.join(__dirname,'..'),ctx={console,Logger:{log(){}},PropertiesService:{},DriveApp:{},SpreadsheetApp:{},SlidesApp:{},DocumentApp:{},MimeType:{},LockService:{},ScriptApp:{},Utilities:{DigestAlgorithm:{SHA_256:'SHA_256'},Charset:{UTF_8:'UTF_8'},computeDigest:(_,value)=>Array.from(Buffer.from(String(value),'utf8'))}};vm.createContext(ctx);fs.readdirSync(root).filter(f=>f.endsWith('.js')).sort().forEach(f=>vm.runInContext(fs.readFileSync(path.join(root,f),'utf8').replace(/^const /gm,'var '),ctx));
 const it=a=>{let i=0;return{hasNext:()=>i<a.length,next:()=>a[i++]}};function el(left=1){const o={getLeft:()=>left,getTop:()=>2,getWidth:()=>3,getHeight:()=>4,getPageElementType:()=> 'IMAGE',getTitle:()=>'',getDescription:()=>'',setLeft:v=>(left=v,o),setTop:()=>o,setWidth:()=>o,setHeight:()=>o};return o;}function apply(records,elements){ctx.filesByName_=()=>it([{getBlob:()=>({getDataAsString:()=>JSON.stringify({schema:'consultation-slide-geometry/v2',caseName:'A社',records})})}]);const w=[];ctx.applyPersistentGeometry_({},'A社',n=>n===12?{getPageElements:()=>elements}:null,w);return w;}
 const s={type:'IMAGE',title:'',description:'',templateGeometry:{left:1,top:2,width:3,height:4}},r={status:'active',slideNo:12,selector:s,after:{left:9,top:2,width:3,height:4}};let e=el();assert.deepStrictEqual(apply([r],[e]),[]);assert.strictEqual(e.getLeft(),9);assert.deepStrictEqual(apply([r],[el(),el()]).length,1);assert.deepStrictEqual(apply([{...r,after:{left:9}}],[el()]).length,1);console.log('ok persistent geometry: repeated/ambiguous/invalid safely contained');
 // Mapping is authored from live generator references, not a post-generation
@@ -47,3 +47,44 @@ assert.match(slidesSource,/if \(def\.no === 40\)[\s\S]*?geometryTargetFromActive
 assert.doesNotMatch(slidesSource,/addGeometryTarget\(def\.no, top, 'heading'\)/);
 assert.match(slidesSource,/if \(no40UsesDurableRecord\)[\s\S]*?geometryTargets\[def\.no\] = \[\]/);
 console.log('ok generated v2 map: No.40 records the durable-selected heading only');
+
+function normalApplyFixture(mode){
+  let geometry={left:1,top:2,width:3,height:4};
+  const before={...geometry},calls=[],raw={};
+  const selector={type:'IMAGE',title:'hero',description:'',templateGeometry:{...before},role:'primary-image'};
+  const resolved={caseName:'A社',hearingId:'hearing',presentationId:'deck',presentationRevision:'rev-1',pages:[{slideNo:1,pageId:'p1',targetSelector:selector}]};
+  const deck={id:'deck',slides:[{id:'p1',elements:[raw]}]};
+  const runtime={
+    resolve:()=>resolved,revision:()=> 'rev-1',open:()=>deck,presentationId:d=>d.id,slides:d=>d.slides,slideId:s=>s.id,elements:s=>s.elements,pageSize:()=>({width:720,height:450}),
+    element:()=>({id:'target',type:'IMAGE',title:'hero',description:'',text:'',geometry:{...geometry},contentHash:'content',raw}),
+    setGeometry:(_,next)=>{calls.push({...next});if((mode==='readback-mismatch'||mode==='restore-failure')&&calls.length===1)geometry={...next,top:next.top+.5};else if(mode==='restore-failure'&&calls.length===2)geometry={...next,left:next.left+.5};else geometry={...next};}
+  };
+  const read=ctx.normalGeometryRead_({caseName:'A社',slideNo:1},runtime),element=read.snapshot.pages[0].elements[0];
+  const plan={schema:ctx.NORMAL_GEOMETRY_SCHEMA_,status:'approved',approvedBy:'owner',revision:1,caseName:'A社',presentationId:'deck',pageId:'p1',objectId:'target',presentationRevision:read.snapshot.revision,pageOrder:read.snapshot.pageOrder,pageHashes:ctx.normalGeometryPageHashes_(read.snapshot.pages),before:{...before},after:{...before,top:9},contentHash:element.contentHash,persistentSelector:{slideNo:1,selector:element.persistentSelector.selector},untouched:ctx.normalGeometryUntouched_(read.snapshot.pages,'p1','target')};
+  plan.planHash=ctx.normalGeometryPlanHash_(plan);
+  return {runtime,plan,calls,current:()=>({...geometry}),before};
+}
+let normal=normalApplyFixture('success');
+assert.strictEqual(ctx.normalGeometryApply_(normal.plan,normal.runtime).ok,true);
+assert.deepStrictEqual(normal.current(),normal.plan.after);assert.strictEqual(normal.calls.length,1);
+normal=normalApplyFixture('readback-mismatch');
+assert.throws(()=>ctx.normalGeometryApply_(normal.plan,normal.runtime),/元の配置へ復元し、読戻しを確認しました/);
+assert.deepStrictEqual(normal.current(),normal.before);assert.strictEqual(normal.calls.length,2);
+normal=normalApplyFixture('restore-failure');
+assert.throws(()=>ctx.normalGeometryApply_(normal.plan,normal.runtime),/復元または読戻し確認にも失敗/);
+assert.notDeepStrictEqual(normal.current(),normal.before);assert.strictEqual(normal.calls.length,2);
+console.log('ok normal geometry: successful apply, readback rollback, and rollback failure are distinguished');
+
+const isolationAuditSource=fs.readFileSync(path.join(root,'58_isolated_case_audit.js'),'utf8');
+const fixtureFaqStart=isolationAuditSource.indexOf('function runIsolationFixtureFaqNormalCase()');
+const structuredFaqStart=isolationAuditSource.indexOf('function runIsolationStructuredFaqNormalCase()');
+assert.ok(fixtureFaqStart>0&&structuredFaqStart>fixtureFaqStart);
+assert.strictEqual((isolationAuditSource.match(/runIsolationFixtureFaqNormalCase\(/g)||[]).length,1);
+assert.strictEqual((isolationAuditSource.match(/runIsolationStructuredFaqNormalCase\(/g)||[]).length,1);
+const fixtureFaqBody=isolationAuditSource.slice(fixtureFaqStart,structuredFaqStart),structuredFaqBody=isolationAuditSource.slice(structuredFaqStart);
+for(const body of [fixtureFaqBody,structuredFaqBody]){
+  assert.match(body,/withIsolationTestConfig_/);assert.match(body,/隔離通し_生成_(?:rootID|ヒアリングID)/);
+  assert.doesNotMatch(body,/(?:notify|MailApp|UrlFetchApp|processNewFlow_|main\s*\()/);
+}
+assert.match(isolationAuditSource,/Manual fixed-isolation write test/);
+console.log('ok FAQ fixture writers: fixed-ID manual-only entrypoints with no normal-flow or notification call');

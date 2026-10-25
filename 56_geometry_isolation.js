@@ -514,6 +514,11 @@ function 隔離通し_J台本を正規取込する(daihonText) {
   });
 }
 
+// The normal-geometry API permits exactly this fixed non-customer fixture.
+// Keep the live removal of the legacy writer below; this name is only the
+// fail-closed routing key used by normalGeometryConfigForCase_.
+const ISOLATION_GEOMETRY_CASE = "隔離通し診断テスト社";
+
 function 隔離通しスライド失敗を読む() {
   var cfg = 隔離通し_生成設定を作る_();
   return withIsolationTestConfig_(cfg, function () {
@@ -609,40 +614,6 @@ function スライド_隔離配置永続化を試す() {
     if(JSON.stringify(actual)!==JSON.stringify(before.fingerprint)) throw new Error('対象外要素のgeometryまたは構成が変わりました: No.'+before.slideNo);
   });
   return {ok:true,caseName:caseName,outputRootId:rootId,firstDeckId:map.presentationId,secondDeckId:latest.presentationId,pageCount:latest.pages.length,expectedGeometry:after,actualGeometry:geometryOf_(applied[0]),geometryVerified:true};
-}
-
-
-// Fixed fixture only: snapshot, mutate the live object, prove the readback,
-// then persist the selector for a normal regeneration.  No input selects IDs.
-const ISOLATION_GEOMETRY_CASE = '隔離通し診断テスト社';
-const ISOLATION_GEOMETRY_HEARING = '1ur8hPUElZMrKuitnDo1j1wzr54EkmRY9efNMaEQFErs';
-const ISOLATION_GEOMETRY_DECK = '12jfYwhluLE4r6DQrueSl45x8BnZprbaMtgJBVCugU84';
-const ISOLATION_GEOMETRY_PAGE = 'g38554c11d2e_1_113';
-const ISOLATION_GEOMETRY_OBJECT = 'g38554c11d2e_1_114';
-const ISOLATION_GEOMETRY_NO = 40;
-const ISOLATION_GEOMETRY_BEFORE = {left:40.44094488188976,top:37.21555118110236,width:639.1181102362204,height:47.40944881889764};
-function isolationGeometryEqual_(a,b){return !!a&&!!b&&['left','top','width','height'].every(function(k){return Number(a[k])===Number(b[k]);});}
-function isolationGeometry_(e){return {left:e.getLeft(),top:e.getTop(),width:e.getWidth(),height:e.getHeight()};}
-function isolationHash_(s){return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,String(s),Utilities.Charset.UTF_8).map(function(b){return ('0'+(b<0?b+256:b).toString(16)).slice(-2);}).join('');}
-function isolationCanonical_(v){if(Array.isArray(v))return '['+v.map(isolationCanonical_).join(',')+']';if(v&&typeof v==='object')return '{'+Object.keys(v).sort().map(function(k){return JSON.stringify(k)+':'+isolationCanonical_(v[k]);}).join(',')+'}';return JSON.stringify(v);}
-function isolationPlanHash_(p){const q={};Object.keys(p).forEach(function(k){if(k!=='planHash')q[k]=p[k];});return isolationHash_(isolationCanonical_(q));}
-function isolationFolder_(){const root=DriveApp.getFolderById(隔離通し_生成_生成物rootID);if(root.getName()!=='【出力】生成物')throw new Error('固定隔離rootではありません');const it=root.getFoldersByName(ISOLATION_GEOMETRY_CASE);if(!it.hasNext())throw new Error('固定隔離案件がありません');const f=it.next();if(it.hasNext())throw new Error('固定隔離案件が複数あります');return f;}
-function isolationGeometryMap_(){const f=activeGeometryFile_(isolationFolder_(),ISOLATION_GEOMETRY_CASE);if(!f)return null;const x=JSON.parse(f.getBlob().getDataAsString('UTF-8'));if(!x||x.schema!==GEOMETRY_SCHEMA||x.caseName!==ISOLATION_GEOMETRY_CASE||!Array.isArray(x.records))throw new Error('固定隔離配置指定が不正です');return {file:f,data:x};}
-function スライド_承認用geometryを読む(){
-  const folder=isolationFolder_(),it=filesByName_(folder,GEOMETRY_MAP_PREFIX+ISOLATION_GEOMETRY_CASE+'.json');if(!it.hasNext())throw new Error('正規対応表がありません');const mapFile=it.next();if(it.hasNext())throw new Error('正規対応表が複数あります');const map=JSON.parse(mapFile.getBlob().getDataAsString('UTF-8'));
-  const p=(map.pages||[]).filter(function(x){return x.slideNo===ISOLATION_GEOMETRY_NO&&x.pageId===ISOLATION_GEOMETRY_PAGE;});if(map.caseName!==ISOLATION_GEOMETRY_CASE||map.presentationId!==ISOLATION_GEOMETRY_DECK||p.length!==1)throw new Error('固定対象と正規対応表が一致しません');
-  const deck=SlidesApp.openById(ISOLATION_GEOMETRY_DECK),slide=deck.getSlides().filter(function(s){return s.getObjectId()===ISOLATION_GEOMETRY_PAGE;});if(slide.length!==1)throw new Error('正規ページが現物と一致しません');const hit=slide[0].getPageElements().filter(function(e){return e.getObjectId()===ISOLATION_GEOMETRY_OBJECT;});if(hit.length!==1)throw new Error('対象要素が一意ではありません');const g=isolationGeometry_(hit[0]);if(!isolationGeometryEqual_(g,ISOLATION_GEOMETRY_BEFORE))throw new Error('対象要素の元geometryが一致しません');
-  const selector=Object.assign(elementLabel_(hit[0]),{templateGeometry:g});return {ok:true,caseName:ISOLATION_GEOMETRY_CASE,hearingId:ISOLATION_GEOMETRY_HEARING,presentationId:ISOLATION_GEOMETRY_DECK,slideNo:ISOLATION_GEOMETRY_NO,pageId:ISOLATION_GEOMETRY_PAGE,objectId:ISOLATION_GEOMETRY_OBJECT,before:g,persistentSelector:selector,revision:isolationHash_(isolationCanonical_({map:map,geometry:g,selector:selector}))};
-}
-function スライド_承認済み配置を適用(plan){
-  if(!plan||plan.caseName!==ISOLATION_GEOMETRY_CASE||!/^\d{12}-[a-f0-9]{4}$/.test(String(plan.proposalId||''))||plan.revision!==1||plan.planHash!==isolationPlanHash_(plan))throw new Error('固定隔離の承認済み試験planではありません');
-  const snap=スライド_承認用geometryを読む(),a=plan.after;if(plan.presentationId!==snap.presentationId||plan.pageId!==snap.pageId||plan.objectId!==snap.objectId||!isolationGeometryEqual_(plan.before,snap.before)||plan.presentationRevision!==snap.revision||isolationCanonical_(plan.persistentSelector)!==isolationCanonical_(snap.persistentSelector))throw new Error('対象、元revision、またはselectorが一致しません');if(!a||a.left!==snap.before.left||a.width!==snap.before.width||a.height!==snap.before.height||!Number.isFinite(a.top)||a.top<20||a.top>55)throw new Error('許可された小さなtop変更ではありません');
-  const existing=isolationGeometryMap_();if(existing&&existing.data.records.some(function(r){return r&&r.proposalId===plan.proposalId;}))throw new Error('この試験planは既に適用済みです');
-  const deck=SlidesApp.openById(snap.presentationId),slide=deck.getSlides().filter(function(s){return s.getObjectId()===snap.pageId;});const hits=slide.length===1?slide[0].getPageElements().filter(function(e){return e.getObjectId()===snap.objectId;}):[];if(hits.length!==1)throw new Error('現物の固定対象が一意ではありません');const target=hits[0];
-  target.setLeft(a.left).setTop(a.top).setWidth(a.width).setHeight(a.height);const actual=isolationGeometry_(target);if(!isolationGeometryEqual_(actual,a)){target.setLeft(snap.before.left).setTop(snap.before.top).setWidth(snap.before.width).setHeight(snap.before.height);throw new Error('現物geometryの読戻しが一致しません');}
-  const record={proposalId:plan.proposalId,revision:1,planHash:plan.planHash,status:'active',slideNo:ISOLATION_GEOMETRY_NO,selector:plan.persistentSelector,after:a};const data=existing?existing.data:{schema:GEOMETRY_SCHEMA,caseName:ISOLATION_GEOMETRY_CASE,records:[]};data.records.push(record);
-  try{if(existing)existing.file.setContent(JSON.stringify(data));else isolationFolder_().createFile(GEOMETRY_FILE_PREFIX+ISOLATION_GEOMETRY_CASE+'.json',JSON.stringify(data),MimeType.PLAIN_TEXT);const saved=isolationGeometryMap_();if(!saved||saved.data.records.filter(function(r){return r&&r.proposalId===plan.proposalId&&r.planHash===plan.planHash;}).length!==1)throw new Error('配置指定の読戻しが一致しません');}catch(e){target.setLeft(snap.before.left).setTop(snap.before.top).setWidth(snap.before.width).setHeight(snap.before.height);throw e;}
-  return {ok:true,proposalId:plan.proposalId,revision:1,planHash:plan.planHash,before:snap.before,after:actual,geometryVerified:true,durableGeometryVerified:true};
 }
 
 // One-time repair for the already-completed J isolation deck.  It is not a
