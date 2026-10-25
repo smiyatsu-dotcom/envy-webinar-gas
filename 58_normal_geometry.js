@@ -176,6 +176,13 @@ function normalGeometryRead_(request, runtime) {
   return { ok:true, caseName:target.caseName, target:target, snapshot:snapshot };
 }
 
+function normalGeometryReadbackMatches_(snapshot, target, plan, runtime, expectedGeometry) {
+  var after = normalGeometrySnapshot_(target, runtime.resolve(target.caseName), runtime, { allowTargetGeometryChange:true });
+  var page = after.pages.filter(function (item) { return item.id === target.pageId; })[0];
+  var changed = page && page.elements.filter(function (item) { return item.id === target.objectId; })[0];
+  return !!changed && normalGeometryEqual_(changed.geometry, expectedGeometry) && changed.contentHash === plan.contentHash && normalGeometryStable_(after.pageOrder) === normalGeometryStable_(snapshot.pageOrder) && normalGeometryStable_(normalGeometryPageHashes_(after.pages)) === normalGeometryStable_(normalGeometryPageHashes_(snapshot.pages)) && normalGeometryStable_(normalGeometryUntouched_(after.pages, target.pageId, target.objectId)) === normalGeometryStable_(plan.untouched);
+}
+
 function normalGeometryApply_(plan, runtime) {
   if (!plan || plan.schema !== NORMAL_GEOMETRY_SCHEMA_ || plan.status !== 'approved' || !plan.approvedBy || !Number.isInteger(plan.revision) || plan.planHash !== normalGeometryPlanHash_(plan)) throw new Error('承認済みの配置計画を確認できません');
   var read = normalGeometryRead_({ caseName:plan.caseName, slideNo:plan.persistentSelector && plan.persistentSelector.slideNo }, runtime);
@@ -192,11 +199,24 @@ function normalGeometryApply_(plan, runtime) {
   var rawSlide = runtime.slides(deck).filter(function (slide) { return runtime.slideId(slide) === target.pageId; })[0];
   var rawElement = rawSlide && runtime.elements(rawSlide).map(function (raw) { return runtime.element(raw); }).filter(function (item) { return item.id === target.objectId; })[0];
   if (!rawElement) throw new Error('更新対象の実要素を確認できません');
-  runtime.setGeometry(rawElement.raw, plan.after);
-  var after = normalGeometrySnapshot_(target, runtime.resolve(target.caseName), runtime, { allowTargetGeometryChange:true });
-  var changed = after.pages.filter(function (item) { return item.id === target.pageId; })[0].elements.filter(function (item) { return item.id === target.objectId; })[0];
-  if (!changed || !normalGeometryEqual_(changed.geometry, plan.after) || changed.contentHash !== plan.contentHash || normalGeometryStable_(after.pageOrder) !== normalGeometryStable_(snapshot.pageOrder) || normalGeometryStable_(normalGeometryPageHashes_(after.pages)) !== normalGeometryStable_(normalGeometryPageHashes_(snapshot.pages)) || normalGeometryStable_(normalGeometryUntouched_(after.pages, target.pageId, target.objectId)) !== normalGeometryStable_(plan.untouched)) throw new Error('配置後の読戻しが一致しません。現物照合が必要です');
-  return { ok:true, proposalId:plan.proposalId, revision:plan.revision, planHash:plan.planHash, readback:true };
+  var writeStarted = false;
+  try {
+    writeStarted = true;
+    runtime.setGeometry(rawElement.raw, plan.after);
+    if (!normalGeometryReadbackMatches_(snapshot, target, plan, runtime, plan.after)) throw new Error('配置後の読戻しが一致しません');
+    return { ok:true, proposalId:plan.proposalId, revision:plan.revision, planHash:plan.planHash, readback:true };
+  } catch (error) {
+    if (!writeStarted) throw error;
+    var restoreError = null;
+    try {
+      runtime.setGeometry(rawElement.raw, plan.before);
+      if (!normalGeometryReadbackMatches_(snapshot, target, plan, runtime, plan.before)) restoreError = new Error('元の配置の読戻しが一致しません');
+    } catch (rollbackError) {
+      restoreError = rollbackError;
+    }
+    if (restoreError) throw new Error('配置後の読戻しに失敗し、元の配置の復元または読戻し確認にも失敗しました。現物照合が必要です');
+    throw new Error('配置後の読戻しが一致しません。元の配置へ復元し、読戻しを確認しました');
+  }
 }
 
 // The deployed normal endpoints normally resolve only the production ledger.
