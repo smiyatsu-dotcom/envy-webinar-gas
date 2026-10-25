@@ -104,6 +104,21 @@ const ISOLATED_J_CURRENT_AUDIT_ = {
   textFileName: '【台本】隔離通し診断テスト社_ヒアリングシート.txt',
   importRecordFileName: '【不確定】J台本取込記録.json'
 };
+// The No.7 correction is an append-only, one-time chain after the completed
+// J import.  Do not alter the original import record or its old source hash:
+// the audit accepts this newer source only when every link below is exact.
+const ISOLATED_J_NO7_WRITER_AUDIT_ = {
+  sourceFileId: '1g08BmnhKnzdtepHhUNFkAr2mhjww2cnC',
+  kouseiSheetId: '1YvJszV8Mz1tN1DVZ9xOIY5D7XGW754QQFVU_oyi34AQ',
+  sourceSha256Before: '7eb361136315b71a1505d50e94cbeef12d28feb1846631ec67370072e5331645',
+  sourceSha256After: 'aa136a10184d9c85799a6b80b24e8ec304309f88d8508cc33d61b3a0cda92b7e',
+  other105Sha256: '3b0e762d22d218c432ea432c0e3bfd82161502e049611e5abc6722311d8ed3f3',
+  oldText: '例えば、皆さん経営していてこんなお悩みはありませんか？\nもし、当てはまるものがあれば、挙手🖐️マークでリアクションしていただけると嬉しいです！',
+  newText: '例えば、皆さん経営していてこんなお悩みはありませんか？\n当てはまる方は、挙手マークを押してください。',
+  snapshotFileName: '【保全】No7挙手文言修正前台本.txt',
+  recordFileName: '【不確定】No7挙手文言修正記録.json',
+  sheetCell: '問題教育!E2'
+};
 
 function isolatedJCurrentFile_(folder, name, label) {
   const file = 隔離通し_同名ファイル1件_(folder, name, label);
@@ -115,6 +130,81 @@ function isolatedJCurrentFile_(folder, name, label) {
 // or removes wording to make two artifacts look equal.
 function isolatedJCurrentNormalizeLineEndings_(value) {
   return String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+}
+function isolatedJCurrentScriptRows_(text, label) {
+  let rows;
+  try { rows = JSON.parse(String(text)); }
+  catch (e) { throw new Error(label + 'をJSONとして読めません'); }
+  if (!Array.isArray(rows) || rows.length !== 106) throw new Error(label + 'は106行の配列ではありません');
+  const seen = {};
+  rows.forEach(function(row) {
+    if (!row || typeof row !== 'object' || Array.isArray(row) || Object.keys(row).sort().join(',') !== 'daihon,no') {
+      throw new Error(label + 'の行形式が違います');
+    }
+    const no = Number(row.no);
+    if (!Number.isInteger(no) || no < 1 || no > 106 || seen[no] || typeof row.daihon !== 'string' || !row.daihon.trim()) {
+      throw new Error(label + 'のNo.または本文が不正です');
+    }
+    seen[no] = true;
+  });
+  if (Object.keys(seen).length !== 106) throw new Error(label + 'のNo.が1〜106で一意ではありません');
+  return rows;
+}
+function isolatedJCurrentNo7WriterChain_(cfg, folder, scriptFile, scriptText) {
+  const c = ISOLATED_J_NO7_WRITER_AUDIT_;
+  const currentHash = 隔離通し_J台本_sha256_(scriptText);
+  if (currentHash === 隔離通し_J台本_SHA256) {
+    if (隔離通し_同名ファイル1件_(folder, c.snapshotFileName, 'J現行No.7保全') ||
+        隔離通し_同名ファイル1件_(folder, c.recordFileName, 'J現行No.7修正記録')) {
+      throw new Error('J現行No.7 writer記録と元J台本SHAの組合せが不正です');
+    }
+    return { rows: 隔離通し_J台本_本文を検証する_(scriptText), proof: { mode: 'original-import-chain', sourceSha256: currentHash } };
+  }
+  if (currentHash !== c.sourceSha256After) throw new Error('J現行台本JSONが旧J取込chainまたはNo.7 writer chainの固定SHAと一致しません');
+  if (隔離通し_J台本_SHA256 !== c.sourceSha256Before) throw new Error('J現行No.7 writer chainの元J取込SHA定義が固定旧SHAと一致しません');
+  if (scriptFile.getId() !== c.sourceFileId) throw new Error('J現行No.7 writer chainの元台本JSON IDが固定対象と一致しません');
+  const rows = isolatedJCurrentScriptRows_(scriptText, 'J現行No.7 writer後の台本JSON');
+  const no7 = rows.filter(function(row) { return Number(row.no) === 7; });
+  if (no7.length !== 1 || no7[0].daihon !== c.newText ||
+      隔離通し_J台本_sha256_(JSON.stringify(rows.filter(function(row) { return Number(row.no) !== 7; }))) !== c.other105Sha256) {
+    throw new Error('J現行No.7 writer後の台本JSON本文または他105行hashが固定chainと一致しません');
+  }
+  const snapshot = isolatedJCurrentFile_(folder, c.snapshotFileName, 'J現行No.7修正前保全');
+  const recordFile = isolatedJCurrentFile_(folder, c.recordFileName, 'J現行No.7修正記録');
+  if (!snapshot || !recordFile || 隔離通し_J台本_sha256_(snapshot.getBlob().getDataAsString('UTF-8')) !== c.sourceSha256Before) {
+    throw new Error('J現行No.7 writer chainの修正前保全が固定旧SHAと一致しません');
+  }
+  let record;
+  try { record = JSON.parse(recordFile.getBlob().getDataAsString('UTF-8')); }
+  catch (e) { throw new Error('J現行No.7 writer記録JSONを読めません'); }
+  const rowsInLedger = mgmtSheet_(cfg).getDataRange().getValues();
+  const nonEmpty = rowsInLedger.slice(1).filter(function(row) { return row.some(function(cell) { return String(cell == null ? '' : cell).trim() !== ''; }); });
+  const matches = [], sameHearing = [];
+  rowsInLedger.slice(1).forEach(function(row, index) {
+    const exact = String(row[0] || '').trim() === 隔離通し_生成_ヒアリングID &&
+      String(row[1] || '').trim() === 隔離通し_生成_案件名 + '_ヒアリングシート' &&
+      String(row[流れ_列 - 1] || '').trim() === 流れ_新;
+    if (exact) matches.push({ row: row, rowNumber: index + 2 });
+    if (String(row[0] || '').trim() === 隔離通し_生成_ヒアリングID) sameHearing.push(index + 2);
+  });
+  if (nonEmpty.length !== 1 || matches.length !== 1 || sameHearing.length !== 1 || registry_(cfg)[隔離通し_生成_ヒアリングID] !== matches[0].rowNumber) {
+    throw new Error('J現行No.7 writer chainの固定台帳行またはregistryが一意ではありません');
+  }
+  const kouseiId = idFromUrl_(String(matches[0].row[3] || ''));
+  const ss = SpreadsheetApp.openById(kouseiId), settings = ss.getSheetByName(TABS.SETTINGS), problem = ss.getSheetByName(TABS.PROBLEM);
+  if (!settings || !problem || String(settings.getRange('B1').getValue()).trim() !== 隔離通し_生成_案件名 + '_ヒアリングシート' ||
+      String(settings.getRange('B4').getValue()).trim() !== 隔離通し_生成_ヒアリングID || settings.getRange('B2').getValue() !== false || settings.getRange('B22').getValue() !== false ||
+      String(problem.getRange('E2').getValue() || '') !== c.newText) {
+    throw new Error('J現行No.7 writer chainの固定構成SheetまたはE2が一致しません');
+  }
+  if (!record || record.schema !== 'isolation-j-no7-hand-raise/v1' || record.status !== 'completed' || record.automaticRetry !== false ||
+      record.folderId !== folder.getId() || record.sourceFileId !== c.sourceFileId || record.kouseiSheetId !== c.kouseiSheetId || kouseiId !== c.kouseiSheetId || record.managementRow !== matches[0].rowNumber ||
+      record.sourceSha256Before !== c.sourceSha256Before || record.sourceSha256After !== c.sourceSha256After || record.other105Sha256 !== c.other105Sha256 ||
+      record.backupFileId !== snapshot.getId() || record.sheetCell !== c.sheetCell) {
+    throw new Error('J現行No.7 writer completed記録が固定chainと一致しません');
+  }
+  return { rows: rows, proof: { mode: 'completed-no7-writer-chain', sourceSha256Before: c.sourceSha256Before,
+    sourceSha256After: c.sourceSha256After, other105Sha256: c.other105Sha256, sheetCell: c.sheetCell } };
 }
 function isolatedJCurrentNote_(slide) {
   try {
@@ -240,7 +330,6 @@ function isolatedJCurrentAuditTarget_() {
   isolatedJCurrentFile_(folder, c.textFileName, 'J現行音声台本TXT');
   const recordFile = isolatedJCurrentFile_(folder, c.importRecordFileName, 'J台本取込記録');
   const scriptText = scriptFile.getBlob().getDataAsString('UTF-8');
-  const scriptRows = 隔離通し_J台本_本文を検証する_(scriptText);
   let importRecord;
   try { importRecord = JSON.parse(recordFile.getBlob().getDataAsString('UTF-8')); }
   catch (e) { throw new Error('J台本取込記録JSONを読めません'); }
@@ -248,6 +337,7 @@ function isolatedJCurrentAuditTarget_() {
       importRecord.targetScriptSha256 !== 隔離通し_J台本_SHA256 || importRecord.automaticRetry !== false) {
     throw new Error('J台本取込completed記録が固定条件と一致しません');
   }
+  const provenance = isolatedJCurrentNo7WriterChain_(cfg, folder, scriptFile, scriptText);
   let mapping, geometry;
   try { mapping = JSON.parse(mapFile.getBlob().getDataAsString('UTF-8')); }
   catch (e) { throw new Error('J現行スライド対応表JSONを読めません'); }
@@ -268,7 +358,7 @@ function isolatedJCurrentAuditTarget_() {
     throw new Error('J現行deckが固定隔離案件フォルダに一意にありません');
   }
   return { cfg: cfg, folder: folder, mapping: mapping, geometry: geometry, deckFile: deckFile,
-    scriptHash: 隔離通し_J台本_sha256_(scriptText), scriptRows: scriptRows };
+    scriptHash: 隔離通し_J台本_sha256_(scriptText), scriptRows: provenance.rows, scriptProvenance: provenance.proof };
 }
 
 /**
@@ -358,6 +448,7 @@ function 隔離通し_J現行資料を読取検品() {
       normalGeneratorExpectation: { order: ['resolveDaihon_-fixed-before-imported-JSON', 'normalizeWebinarTerms_', 'CRLF-or-CR-to-LF-comparison-only'],
         expectedRows: 106, expectedNotesSha256: 隔離通し_J台本_sha256_(JSON.stringify(Object.keys(expectedRowsByNo).map(function(no) { return { no: Number(no), daihon: expectedRowsByNo[no] }; }))),
         fixedSourceDivergenceNos: fixedScriptMismatchNos },
+      scriptProvenance: target.scriptProvenance,
       scriptNotes: { expectedRows: 106, comparedRows: noteRows.length, mismatchCount: noteMismatchNos.length,
         mismatchNos: noteMismatchNos, emptyNoteCount: emptyNoteNos.length, emptyNoteNos: emptyNoteNos,
         unreadableNoteCount: unreadableNoteNos.length, unreadableNoteNos: unreadableNoteNos },

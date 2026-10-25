@@ -12,6 +12,8 @@ const GEOMETRY = '【配置指定】隔離通し診断テスト社.json';
 const SCRIPT = '【台本JSON】隔離通し診断テスト社.txt';
 const TEXT = '【台本】隔離通し診断テスト社_ヒアリングシート.txt';
 const IMPORT_RECORD = '【不確定】J台本取込記録.json';
+const SOURCE_ID = '1g08BmnhKnzdtepHhUNFkAr2mhjww2cnC';
+const NO7_OLD = '例えば、皆さん経営していてこんなお悩みはありませんか？\nもし、当てはまるものがあれば、挙手🖐️マークでリアクションしていただけると嬉しいです！';
 
 let passed = 0;
 function test(name, fn) {
@@ -69,7 +71,13 @@ function fixture() {
   const folder = output.addFolder(CASE, FOLDER);
   const ledger = env.makeSpreadsheet('16UgS3scd3X2D2Qqhzd1WfJuGkuNcOt5WbekQZLyKDpg', ['台帳']);
   ledger.getSheets()[0].appendRow(['ヒアリングファイルID', '案件名', 'ステータス', '構成シートURL', 'スライドURL', 'メッセージ', '更新日時', '流れ']);
-  ledger.getSheets()[0].appendRow([HEARING, CASE + '_ヒアリングシート', '完了', '', '', '', '', '新']);
+  const kousei = env.makeSpreadsheet('kousei-test-12345678901234567890', ['設定', '問題教育']);
+  const settings = kousei.getSheetByName('設定');
+  settings.getRange('B1').setValue(CASE + '_ヒアリングシート');
+  settings.getRange('B2').setValue(false);
+  settings.getRange('B4').setValue(HEARING);
+  settings.getRange('B22').setValue(false);
+  ledger.getSheets()[0].appendRow([HEARING, CASE + '_ヒアリングシート', '完了', kousei.getUrl(), '', '', '', '新']);
   const before = { left: 40.44094488188976, top: 37.21555118110236, width: 639.1181102362204, height: 47.40944881889764 };
   const after = { ...before, top: 40 };
   const pages = Array.from({ length: 106 }, (_, index) => ({ slideNo: index + 1, pageId: 'page-' + (index + 1) }));
@@ -80,7 +88,9 @@ function fixture() {
   const notes = scriptRows.map(row => row.daihon);
   const mapFile = folder.addFile(MAP, JSON.stringify(map));
   folder.addFile(GEOMETRY, JSON.stringify(geometry));
-  folder.addFile(SCRIPT, scriptText);
+  const scriptFile = folder.addFile(SCRIPT, scriptText);
+  scriptFile.getId = () => SOURCE_ID;
+  kousei.getSheetByName('問題教育').getRange('E2').setValue(G.FIXED_DAIHON[7]);
   folder.addFile(TEXT, notes.join('\n\n') + '\n');
   const oldGetFile = G.DriveApp.getFileById;
   G.DriveApp.getFileById = id => {
@@ -97,13 +107,125 @@ function fixture() {
   G.processImports_ = () => { throw new Error('repair must not import'); };
   G.processNewFlow_ = () => { throw new Error('repair must not advance flow'); };
   G.スライドを組む_ = () => { throw new Error('repair must not regenerate'); };
-  return { env, G, folder, mapFile, slides };
+  return { env, G, folder, mapFile, scriptFile, kousei, slides };
+}
+
+function installNo7WriterChain({ G, folder, scriptFile, kousei }) {
+  const afterRows = JSON.parse(scriptFile.content);
+  const beforeRows = JSON.parse(scriptFile.content);
+  beforeRows.find(row => row.no === 7).daihon = NO7_OLD;
+  const beforeText = JSON.stringify(beforeRows), afterText = JSON.stringify(afterRows);
+  const c = G.ISOLATED_J_NO7_WRITER_AUDIT_;
+  c.sourceFileId = SOURCE_ID;
+  c.kouseiSheetId = kousei.getId();
+  c.sourceSha256Before = G.隔離通し_J台本_sha256_(beforeText);
+  c.sourceSha256After = G.隔離通し_J台本_sha256_(afterText);
+  c.other105Sha256 = G.隔離通し_J台本_sha256_(JSON.stringify(afterRows.filter(row => row.no !== 7)));
+  c.oldText = NO7_OLD;
+  c.newText = G.FIXED_DAIHON[7];
+  const importRecord = folder.getFilesByName(IMPORT_RECORD).next();
+  G.隔離通し_J台本_SHA256 = c.sourceSha256Before;
+  importRecord.content = JSON.stringify({ status: 'completed', automaticRetry: false, folderId: FOLDER, targetScriptSha256: c.sourceSha256Before });
+  const snapshot = folder.addFile(c.snapshotFileName, beforeText);
+  const writerRecord = folder.addFile(c.recordFileName, JSON.stringify({
+    schema: 'isolation-j-no7-hand-raise/v1', status: 'completed', automaticRetry: false,
+    folderId: FOLDER, sourceFileId: SOURCE_ID, kouseiSheetId: kousei.getId(), managementRow: 2,
+    sourceSha256Before: c.sourceSha256Before, sourceSha256After: c.sourceSha256After,
+    other105Sha256: c.other105Sha256, backupFileId: snapshot.getId(), sheetCell: c.sheetCell
+  }));
+  return { writerRecord, snapshot, beforeText, afterText };
 }
 
 test('fixed No.7 is a natural participant action without emoji or production metadata', () => {
   const { G } = fixture();
   assert.strictEqual(G.FIXED_DAIHON[7], '例えば、皆さん経営していてこんなお悩みはありませんか？\n当てはまる方は、挙手マークを押してください。');
   assert.doesNotMatch(G.FIXED_DAIHON[7], /🖐️|リアクション|挙手ありがとうございます|避け/u);
+  const source = require('fs').readFileSync(require('path').join(__dirname, '..', '58_isolated_case_audit.js'), 'utf8');
+  assert.match(source, /sourceSha256Before: '7eb361136315b71a1505d50e94cbeef12d28feb1846631ec67370072e5331645'/);
+  assert.match(source, /kouseiSheetId: '1YvJszV8Mz1tN1DVZ9xOIY5D7XGW754QQFVU_oyi34AQ'/);
+  assert.match(source, /sourceSha256After: 'aa136a10184d9c85799a6b80b24e8ec304309f88d8508cc33d61b3a0cda92b7e'/);
+  assert.match(source, /other105Sha256: '3b0e762d22d218c432ea432c0e3bfd82161502e049611e5abc6722311d8ed3f3'/);
+});
+
+test('strict audit accepts the completed fixed No.7 chain only after source, backup, record, sheet, and 105-row checks', () => {
+  const fixtureValue = fixture();
+  const { env, G } = fixtureValue;
+  installNo7WriterChain(fixtureValue);
+  const before = env.log.length;
+  const result = G.隔離通し_J現行資料を読取検品();
+  assert.strictEqual(result.ok, false); // the untouched No.40 selector is still intentionally absent in this fixture
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(result.scriptProvenance)), {
+    mode: 'completed-no7-writer-chain',
+    sourceSha256Before: G.ISOLATED_J_NO7_WRITER_AUDIT_.sourceSha256Before,
+    sourceSha256After: G.ISOLATED_J_NO7_WRITER_AUDIT_.sourceSha256After,
+    other105Sha256: G.ISOLATED_J_NO7_WRITER_AUDIT_.other105Sha256,
+    sheetCell: '問題教育!E2'
+  });
+  assert.strictEqual(result.scriptNotes.mismatchCount, 0);
+  assert.strictEqual(env.log.length, before);
+});
+
+test('strict audit fails closed for a missing or uncertain No.7 writer record', () => {
+  {
+    const fixtureValue = fixture();
+    const { writerRecord } = installNo7WriterChain(fixtureValue);
+    writerRecord.trashed = true;
+    assert.throws(() => fixtureValue.G.隔離通し_J現行資料を読取検品(), /No.7修正記録/);
+  }
+  {
+    const fixtureValue = fixture();
+    const { writerRecord } = installNo7WriterChain(fixtureValue);
+    const record = JSON.parse(writerRecord.content); record.status = 'uncertain'; writerRecord.content = JSON.stringify(record);
+    assert.throws(() => fixtureValue.G.隔離通し_J現行資料を読取検品(), /completed記録/);
+  }
+});
+
+test('strict audit fails closed for an unverified source, a changed source, or multiple writer records', () => {
+  {
+    const fixtureValue = fixture();
+    installNo7WriterChain(fixtureValue);
+    fixtureValue.scriptFile.getId = () => 'other-source-file';
+    assert.throws(() => fixtureValue.G.隔離通し_J現行資料を読取検品(), /元台本JSON ID/);
+  }
+  {
+    const fixtureValue = fixture();
+    installNo7WriterChain(fixtureValue);
+    fixtureValue.scriptFile.content += ' ';
+    assert.throws(() => fixtureValue.G.隔離通し_J現行資料を読取検品(), /固定SHA/);
+  }
+  {
+    const fixtureValue = fixture();
+    installNo7WriterChain(fixtureValue);
+    fixtureValue.folder.addFile(fixtureValue.G.ISOLATED_J_NO7_WRITER_AUDIT_.recordFileName, '{}');
+    assert.throws(() => fixtureValue.G.隔離通し_J現行資料を読取検品(), /複数/);
+  }
+});
+
+test('strict audit fails closed when writer record fields, original import SHA, or Sheet E2 do not prove the fixed chain', () => {
+  {
+    const fixtureValue = fixture();
+    const { writerRecord } = installNo7WriterChain(fixtureValue);
+    const record = JSON.parse(writerRecord.content); record.sourceFileId = 'other-source'; writerRecord.content = JSON.stringify(record);
+    assert.throws(() => fixtureValue.G.隔離通し_J現行資料を読取検品(), /completed記録/);
+  }
+  {
+    const fixtureValue = fixture();
+    const { writerRecord } = installNo7WriterChain(fixtureValue);
+    const record = JSON.parse(writerRecord.content); record.kouseiSheetId = 'other-sheet'; writerRecord.content = JSON.stringify(record);
+    assert.throws(() => fixtureValue.G.隔離通し_J現行資料を読取検品(), /completed記録/);
+  }
+  {
+    const fixtureValue = fixture();
+    installNo7WriterChain(fixtureValue);
+    fixtureValue.G.隔離通し_J台本_SHA256 = 'f'.repeat(64);
+    assert.throws(() => fixtureValue.G.隔離通し_J現行資料を読取検品(), /J台本取込completed記録|元J取込SHA定義/);
+  }
+  {
+    const fixtureValue = fixture();
+    installNo7WriterChain(fixtureValue);
+    fixtureValue.kousei.getSheetByName('問題教育').getRange('E2').setValue('different');
+    assert.throws(() => fixtureValue.G.隔離通し_J現行資料を読取検品(), /構成SheetまたはE2/);
+  }
 });
 
 test('current J audit is read-only and reports the missing No.40 selector without using the historical deck audit', () => {
@@ -225,7 +347,9 @@ test('repair source cannot call import, flow, or slide regeneration', () => {
 
 test('strict audit source has no mutation, import, regeneration, delivery, or notification path', () => {
   const source = require('fs').readFileSync(require('path').join(__dirname, '..', '58_isolated_case_audit.js'), 'utf8');
+  const chainBody = source.slice(source.indexOf('function isolatedJCurrentNo7WriterChain_'), source.indexOf('function isolatedJCurrentNote_'));
   const body = source.slice(source.indexOf('function 隔離通し_J現行資料を読取検品'), source.indexOf('function runIsolationCurrentJReadAudit'));
+  assert.doesNotMatch(chainBody, /setContent\s*\(|createFile\s*\(|setValue\s*\(|saveAndClose\s*\(/);
   assert.doesNotMatch(body, /setContent\s*\(/);
   assert.doesNotMatch(body, /createFile\s*\(/);
   assert.doesNotMatch(body, /processImports_\s*\(/);
